@@ -28,6 +28,78 @@ enum PromotionType {
 }
 
 model User {
-  id       Int    @id @default(autoincrement())
-  username String
+  id                  Int           @id @default(autoincrement())
+  utorid              String        @unique
+  name                String
+  email               String        @unique
+  birthday            DateTime?
+  role                RoleType      @default(regular)
+  points              Int           @default(0)
+  verified            Boolean       @default(false)
+  suspicious          Boolean       @default(false)
+  password            String
+  createdAt           DateTime      @default(now())
+  lastLogin           DateTime?
+  avatarUrl           String?
+  resetToken          String?       @unique
+  resetExpiresAt      DateTime?
+
+  transactions        Transaction[]
+  createdTransactions Transaction[] @relation("CreatedTransactions")
+  organizedEvents     Event[]       @relation("EventOrganizers")
+  attendedEvents      Event[]       @relation("EventGuests")
+  createdEvents       Event[]
+  usedPromotions      Promotion[]   @relation("UsedPromotions")
+}
+
+model Transaction {
+  id           Int             @id @default(autoincrement())
+  userId       Int
+  user         User            @relation(fields: [userId], references: [id])
+  type         TransactionType
+  amount       Int
+  spent        Float?
+  redeemed     Int?
+  suspicious   Boolean         @default(false)
+  remark       String?
+  relatedId    Int?
+  createdById  Int?
+  createdBy    User?           @relation("CreatedTransactions", fields: [createdById], references: [id])
+  createdAt    DateTime        @default(now())
+  eventId      Int?
+  event        Event?          @relation(fields: [eventId], references: [id])
+  promotions   Promotion[]     @relation("PromotionTransactions")
+}
+
+model Event {
+  id            Int          @id @default(autoincrement())
+  name          String
+  description   String
+  location      String
+  startTime     DateTime
+  endTime       DateTime
+  capacity      Int?
+  points        Int
+  pointsRemain  Int          @default(0)
+  pointsAwarded Int          @default(0)
+  published     Boolean      @default(false)
+  createdById   Int?
+  createdBy     User?        @relation(fields: [createdById], references: [id])
+  organizers    User[]       @relation("EventOrganizers")
+  guests        User[]       @relation("EventGuests")
+  transactions  Transaction[]
+}
+
+model Promotion {
+  id           Int             @id @default(autoincrement())
+  name         String
+  description  String
+  type         PromotionType
+  startTime    DateTime
+  endTime      DateTime
+  rate         Float?
+  points       Int?
+  minSpending  Float?
+  usedByUsers  User[]          @relation("UsedPromotions")
+  transactions Transaction[]   @relation("PromotionTransactions")
 }
