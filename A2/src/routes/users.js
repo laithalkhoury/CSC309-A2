@@ -46,7 +46,7 @@ router.get("/:userId/events", getUserEvents);
 // POST /users/:userId/transactions - Create a new transfer transaction between the current logged-in user (sender) and the user specified by userId (the recipient)
 router.post("/:userId/transactions", postTransferTransaction);
 
-// POST /users/:userId/redemptions - Create a new redemption transaction for the user
-router.post("/:userId/transactions", postRedemptionTransaction);
+// POST /users/:userId/redemptions - Create a new redemption transaction for the current user
+router.post("/me/transactions", postRedemptionTransaction);
 
 export default router;

@@ -3,9 +3,7 @@ import express from "express";
 import {
     postEvent,
     getEvents,
-    getEventsAsManager,
     getEventById,
-    getEventsAsManager,
     patchEventById,
     deleteEventById,
     postOrganizerToEvent,
@@ -14,8 +12,8 @@ import {
     deleteGuestFromEvent,
     postCurrentUserToEvent,
     removeCurrentUserFromEvent,
-    CreateRewardTransaction
-} from "../controllers/authController.js";
+    createRewardTransaction
+} from "../controllers/eventController.js";
 
 const router = express.Router();
 
@@ -23,11 +21,7 @@ router.post("/", postEvent);
 
 router.get("/", getEvents);
 
-router.get("/", getEventsAsManager);
-
 router.get("/:eventId", getEventById);
-
-router.get("/:eventId", getEventsAsManager);
 
 router.patch("/:eventId", patchEventById);
 
@@ -45,6 +39,6 @@ router.post("/:eventId/guests/me", postCurrentUserToEvent);
 
 router.delete("/:eventId/guests/me", removeCurrentUserFromEvent);
 
-router.post("/:eventId/transactions", CreateRewardTransaction);
+router.post("/:eventId/transactions", createRewardTransaction);
 
 export default router;
