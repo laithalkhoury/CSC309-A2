@@ -9,8 +9,8 @@ import {
   patchCurrentUser,
   patchCurrentUserPassword,
   getUserTransactions,
-  getUserEvents,
   postTransferTransaction,
+  getCurrentUserTransactions,
   postRedemptionTransaction,
 } from "../controllers/usersController.js";
 
@@ -22,12 +22,6 @@ router.post("/", postUser);
 // GET /users - Retrieve all users (superuser only)
 router.get("/", getUsers);
 
-// GET /users/:userId - Retrieve a single user by ID
-router.get("/:userId", getUserById);
-
-// PATCH /users/:userId - Update a specific user's data (manager/superuser)
-router.patch("/:userId", patchUserById);
-
 // GET /users/me - Get current authenticated user
 router.get("/me", getCurrentUser);
 
@@ -37,16 +31,21 @@ router.patch("/me", patchCurrentUser);
 // PATCH /users/me/password - Update current user's password
 router.patch("/me/password", patchCurrentUserPassword);
 
+// POST /users/:userId/redemptions - Create a new redemption transaction for the current user
+router.post("/me/transactions", postRedemptionTransaction);
+
+router.get("/me/transactions", getCurrentUserTransactions);
+
+// GET /users/:userId - Retrieve a single user by ID
+router.get("/:userId", getUserById);
+
+// PATCH /users/:userId - Update a specific user's data (manager/superuser)
+router.patch("/:userId", patchUserById);
+
 // GET /users/:userId/transactions - Get user's transactions
 router.get("/:userId/transactions", getUserTransactions);
 
-// GET /users/:userId/events - Get user's events
-router.get("/:userId/events", getUserEvents);
-
 // POST /users/:userId/transactions - Create a new transfer transaction between the current logged-in user (sender) and the user specified by userId (the recipient)
 router.post("/:userId/transactions", postTransferTransaction);
-
-// POST /users/:userId/redemptions - Create a new redemption transaction for the current user
-router.post("/me/transactions", postRedemptionTransaction);
 
 export default router;

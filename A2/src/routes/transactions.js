@@ -14,6 +14,6 @@ router.post("/", postTransaction);
 router.get("/", getTransactions);
 router.get("/:transactionId", getTransactionById);
 router.patch("/:transactionId/suspicious", patchTransactionAsSuspiciousById);
-router.patch("/redemptions/:transactionId/processed", patchRedemptionTransactionStatusById);
+router.patch("/:transactionId/processed", patchRedemptionTransactionStatusById);
 
 export default router;
