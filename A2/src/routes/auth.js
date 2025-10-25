@@ -2,7 +2,7 @@ import express from "express";
 
 import {
     authUser,
-    reqPasswordReset,
+    requestPasswordReset,
     resetPassword,
 } from "../controllers/authController.js";
 
@@ -12,7 +12,7 @@ const router = express.Router();
 router.post("/tokens", authUser);
 
 // POST /auth/resets - Request password reset
-router.post("/resets", reqPasswordReset);
+router.post("/resets", requestPasswordReset);
 
 // POST /auth/resets/:resetToken - Reset password
 router.post("/resets/:resetToken", resetPassword);

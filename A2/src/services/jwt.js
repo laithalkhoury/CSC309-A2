@@ -1,10 +1,10 @@
-const jwt = require("jsonwebtoken");
+import jwt from "jsonwebtoken";
 
-function generateToken(user) {
-  const expiresIn = "7d"; 
+export function generateToken(user) {
+  const expiresIn = "7d";
   const token = jwt.sign(
-    { userId: user.id, role: user.role }, 
-    process.env.JWT_SECRET,
+    { userId: user.id, role: user.role },
+    process.env.JWT_SECRET || "secretkey",
     { expiresIn }
   );
 
@@ -12,5 +12,3 @@ function generateToken(user) {
 
   return { token, expiresAt };
 }
-
-module.exports = { generateToken };

@@ -25,6 +25,12 @@ app.use(express.json());
 
 // ADD YOUR WORK HERE
 
+// Import routers
+const authRouter = require("./src/routes/auth.js").default;
+
+// Mount routers
+app.use("/auth", authRouter);
+
 
 const server = app.listen(port, () => {
     console.log(`Server running on port ${port}`);
