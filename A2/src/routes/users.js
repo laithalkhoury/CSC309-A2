@@ -19,7 +19,7 @@ const router = express.Router();
 // POST /users - Register a new user
 router.post("/", postUser);
 
-// GET /users - Retrieve all users (superuser only)
+// GET /users - Retrieve a list of users (manager or higher)
 router.get("/", getUsers);
 
 // GET /users/me - Get current authenticated user

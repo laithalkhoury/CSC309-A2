@@ -25,6 +25,13 @@ function errorHandler(err, _req, res, _next) {
   if (err.message === "Not Found")     return res.status(404).json({ error: "Not Found" });
   if (err.message === "Conflict")      return res.status(409).json({ error: "Conflict" });
 
+  if (err.type === "entity.parse.failed") {
+  return res.status(400).json({ error: "Bad Request" });
+}
+
+  if (err.code === "P2003") {
+  return res.status(400).json({ error: "Bad Request" });
+}
 
   console.error(err);
   res.status(500).json({ error: "Server error" });
