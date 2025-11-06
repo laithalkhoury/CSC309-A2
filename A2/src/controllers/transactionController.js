@@ -110,14 +110,12 @@ export const postTransaction = async(req, res) => {
     const transaction = await prisma.transaction.create({
         data: {
             userId: customer.id,
-            // TODO user ... how do i Fill ...................................................................
             type: "purchase",
             amount: pointsEarned,
             spent: spent,
             suspicious: suspicious,
             remark: remark || "",
             createdById: cashier.id,
-            // TODO createdBY ... how do i Fill ...................................................................
             promotions: {
                 connect: validPromotions.map(promo => ({ id: promo.id }))
                 }
@@ -363,11 +361,76 @@ export const getTransactionById = async(req, res) => {
     });
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 // PATCH /transactions/:transactionId/suspicious - Mark a transaction as suspicious (manager only)
 export const patchTransactionAsSuspiciousById = async(req, res) => {
-    // To be implemented
+    
+    const { transactionId } = req.params;
+    const{suspicious} = req.body;
+
+    // Validate transactionId is a number
+    const transId = Number(transactionId);
+    if (isNaN(transId) || transId <= 0) {
+        throw new Error("Bad Request");
+    }
+
+    // Validate suspicious fielfd
+    if(typeof suspicious !== "boolean") {
+        throw new Error("Bad Request");
+    }
+
+    // Find the transaction by ID
+    const transaction = await prisma.transaction.findUnique({
+        where: {id: transId },
+        include: { user: true } // check if i need to add other stuff like promotions and createdBy..........
+    })
+
+    // Check if transaction exists
+    if (!transaction) {
+        throw new Error("Not Found");
+    }
+
+    // Check if tranaction suspicious status is already as requested
+    if (transaction.suspicious === suspicious){
+        return res.status(200).json({
+            id: transaction.id,
+            utorid: transaction.user.utorid,
+            type: transaction.type,
+            spent: transaction.spent,
+            amount: transaction.amount,
+            promotionIds: transaction.promotions.map(p => p.id),
+            suspicious: transaction.suspicious,
+            remark: transaction.remark,
+            createdBy: transaction.createdBy.utorid
+        });
+    }
+
+    // Update
+
+
+
 }
 
+
+
+module.exports = {    postTransaction,
+    getTransactions,
+    getTransactionById,
+    patchTransactionAsSuspiciousById,
+    patchRedemptionTransactionStatusById,
+    adjustmentTransaction,
+};
 
 
     
