@@ -154,6 +154,62 @@ export const postTransaction = async(req, res) => {
     });
 }
 
+// POST /transactions - Create a new adjustment transaction
+export const adjustmentTransaction = async(req, res) => {
+    // To be implemented
+}
+
+
+// GET /transactions - Retrieve a list of transactions
+export const getTransactions = async(req, res) => {
+    // To be implemented
+}
+
+// GET /transactions/:transactionId - Retrieve a single transaction by ID
+export const getTransactionById = async(req, res) => {
+    const { transactionId } = req.params;
+
+    // Validate transactionId is a number
+    const id = Number(transactionId);
+    if (isNaN(id) || id <= 0) {
+        throw new Error("Bad Request");
+    }
+
+    // Find the transaction by ID
+    const transaction = await prisma.transaction.findUnique({
+        where: { id: id },
+        include: {
+            user: true,
+            createdBy: true,
+            promotions: true
+        }
+    });
+
+    // Check if transaction exists
+    if(!transaction) {
+        throw new Error("Not Found");
+    }
+
+    // Return transaction details
+    return res.status(200).json({
+        id: transaction.id,
+        utorid: transaction.user.utorid,
+        type: transaction.type,
+        spent: transaction.spent,
+        amount: transaction.amount,
+        promotionIDs: transaction.promotions.map(p => p.id),
+        suspicious: transaction.suspicious,
+        remark: transaction.remark,
+        createdBy: transaction.createdBy.utorid
+
+    });
+}
+
+// PATCH /transactions/:transactionId/suspicious - Mark a transaction as suspicious (manager only)
+export const patchTransactionAsSuspiciousById = async(req, res) => {
+    // To be implemented
+}
+
 
 
     
