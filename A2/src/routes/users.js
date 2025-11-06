@@ -1,5 +1,5 @@
 import express from "express";
-
+import { authenticate, requires} from "../middleware/authMiddleware.js";
 import {
   postUser,
   getUsers,
@@ -40,7 +40,7 @@ router.get("/me/transactions", getCurrentUserTransactions);
 router.get("/:userId", getUserById);
 
 // PATCH /users/:userId - Update a specific user's data (manager/superuser)
-router.patch("/:userId", patchUserById);
+router.patch("/:userId", authenticate, requires("manager"), patchUserById);
 
 // GET /users/:userId/transactions - Get user's transactions
 router.get("/:userId/transactions", getUserTransactions);

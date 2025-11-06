@@ -232,3 +232,104 @@ export const getUserById = async (req, res) => {
 
   return res.status(200).json({ ...user, promotions });
 };
+
+
+// updates user identified by Id
+export const patchUserById = async (req, res) => {
+    const id = Number(req.params.userId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+
+  const { email, verified, suspicious, role } = req.body;
+
+  if (
+    email === undefined &&
+    verified === undefined &&
+    suspicious === undefined &&
+    role === undefined
+  ) {
+    throw new Error("Bad Request");
+  }
+
+  const meRole = req.me?.role;
+  if (!meRole) throw new Error("Unauthorized");
+
+  if (role !== undefined) {
+    if (
+      role !== "regular" &&
+      role !== "cashier" &&
+      role !== "manager" &&
+      role !== "superuser"
+    ) {
+      throw new Error("Bad Request");
+    }
+    if (
+      meRole === "manager" &&
+      role !== "regular" &&
+      role !== "cashier"
+    ) {
+      throw new Error("Forbidden");
+    }
+  }
+
+  if (email !== undefined) {
+    const emailOk = typeof email === "string" &&
+      /^[A-Za-z0-9._%+-]+@(mail\.)?utoronto\.ca$/.test(email);
+    if (!emailOk) throw new Error("Bad Request");
+  }
+
+  if (verified !== undefined) {
+    if (verified !== true) throw new Error("Bad Request");
+  }
+
+  if (suspicious !== undefined) {
+    if (typeof suspicious !== "boolean") throw new Error("Bad Request");
+  }
+
+  const current = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, utorid: true, name: true, suspicious: true, role: true }
+  });
+  if (!current) throw new Error("Not Found");
+
+  const data = {};
+  const response = { id: current.id, utorid: current.utorid, name: current.name };
+
+  if (email !== undefined) data.email = email;
+  if (verified !== undefined) data.verified = true;
+  if (suspicious !== undefined) data.suspicious = suspicious;
+  if (role !== undefined) data.role = role;
+
+  if (role === "cashier") {
+    if (suspicious === true) throw new Error("Bad Request");
+    if (current.suspicious === true && suspicious === undefined) {
+      data.suspicious = false;
+    }
+  }
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data,
+    select: {
+      id: true,
+      utorid: true,
+      name: true,
+      email: true,
+      verified: true,
+      suspicious: true,
+      role: true
+    }
+  });
+
+  if (email !== undefined) response.email = updated.email;
+  if (verified !== undefined) response.verified = updated.verified;
+  if (
+    suspicious !== undefined ||
+    (role === "cashier" && current.suspicious === true && suspicious === undefined)
+  ) {
+    response.suspicious = updated.suspicious;
+  }
+  if (role !== undefined) response.role = updated.role;
+
+  return res.status(200).json(response);
+}
+
