@@ -11,6 +11,7 @@ import {
 const router = express.Router();
 
 router.post("/", postTransaction);
+router.post("/", adjustmentTransaction);
 router.get("/", getTransactions);
 router.get("/:transactionId", getTransactionById);
 router.patch("/:transactionId/suspicious", patchTransactionAsSuspiciousById);
