@@ -1,6 +1,5 @@
 const express = require("express");
 
-
 const {
     postTransaction,
     getTransactions,
@@ -39,4 +38,4 @@ const handleTransaction = async(req, res, next) => {
 
 
 
-export default router;
+module.exports = router;

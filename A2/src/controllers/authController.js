@@ -10,7 +10,7 @@ const rateLimiter = new Map();
  * POST /auth/tokens
  * Authenticate user and issue JWT token
  */
-export const authUser = async (req, res) => {
+const authUser = async (req, res) => {
     const { utorid, password } = req.body;
 
     if (!utorid || !password) {
@@ -41,7 +41,7 @@ export const authUser = async (req, res) => {
  * POST /auth/resets
  * Request password reset
  */
-export const requestPasswordReset = async (req, res) => {
+const requestPasswordReset = async (req, res) => {
     const { utorid } = req.body;
 
     if (!utorid) {
@@ -92,7 +92,7 @@ export const requestPasswordReset = async (req, res) => {
  * POST /auth/resets/:resetToken
  * Reset password
  */
-export const resetPassword = async (req, res) => {
+const resetPassword = async (req, res) => {
     const { resetToken } = req.params;
     const { utorid, password } = req.body;
 
@@ -130,4 +130,10 @@ export const resetPassword = async (req, res) => {
     });
 
     return res.status(200).json({ message: "Password has been reset successfully" });
+};
+
+module.exports = {
+    authUser,
+    requestPasswordReset,
+    resetPassword,
 };

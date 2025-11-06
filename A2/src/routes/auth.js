@@ -1,10 +1,10 @@
-import express from "express";
+const express = require("express");
 
-import {
+const {
     authUser,
     requestPasswordReset,
     resetPassword,
-} from "../controllers/authController.js";
+} = require("../controllers/authController.js");
 
 const router = express.Router();
 
@@ -17,4 +17,4 @@ router.post("/resets", requestPasswordReset);
 // POST /auth/resets/:resetToken - Reset password
 router.post("/resets/:resetToken", resetPassword);
 
-export default router;
+module.exports = router;

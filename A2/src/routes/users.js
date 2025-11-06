@@ -1,18 +1,18 @@
-import express from "express";
-import { authenticate, requires} from "../middleware/authMiddleware.js";
-import {
-  postUser,
-  getUsers,
-  getUserById,
-  patchUserById,
-  getCurrentUser,
-  patchCurrentUser,
-  patchCurrentUserPassword,
-  getUserTransactions,
-  postTransferTransaction,
-  getCurrentUserTransactions,
-  postRedemptionTransaction,
-} from "../controllers/usersController.js";
+const express = require("express");
+const { authenticate, requires} =  require("../middleware/authMiddleware.js");
+const {
+    postUser,
+    getUsers,
+    getCurrentUser,
+    patchCurrentUser,
+    patchCurrentUserPassword,
+    postRedemptionTransaction,
+    getCurrentUserTransactions,
+    getUserById,
+    patchUserById,
+    getUserTransactions,
+    postTransferTransaction,
+} = require("../controllers/userController.js");
 
 const router = express.Router();
 
@@ -48,4 +48,4 @@ router.get("/:userId/transactions", getUserTransactions);
 // POST /users/:userId/transactions - Create a new transfer transaction between the current logged-in user (sender) and the user specified by userId (the recipient)
 router.post("/:userId/transactions", postTransferTransaction);
 
-export default router;
+module.exports = router;

@@ -1,6 +1,6 @@
-import express from "express";
+const express = require("express");
 
-import {
+const {
     postEvent,
     getEvents,
     getEventById,
@@ -13,7 +13,7 @@ import {
     postCurrentUserToEvent,
     removeCurrentUserFromEvent,
     createRewardTransaction
-} from "../controllers/eventController.js";
+} = require("../controllers/eventController.js");
 
 const router = express.Router();
 
@@ -41,4 +41,4 @@ router.delete("/:eventId/guests/me", removeCurrentUserFromEvent);
 
 router.post("/:eventId/transactions", createRewardTransaction);
 
-export default router;
+module.exports = router;

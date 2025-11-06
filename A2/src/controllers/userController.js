@@ -5,7 +5,7 @@ const { hashPassword, comparePassword } = require("../services/bcrypt");
 
 
 // POST /users - Register a new user
-export const postUser = async (req, res) => {
+const postUser = async (req, res) => {
 
     const { utorid, name, email } = req.body;
 
@@ -76,7 +76,7 @@ export const postUser = async (req, res) => {
 
 
 // GET /users - Retrieve a list of users. (manager or higher) - this check is done in authentication middleware
-export const getUsers = async (req, res) => {
+const getUsers = async (req, res) => {
   const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
 
   const pageNum = Math.max(parseInt(page) || 1, 1);
@@ -130,7 +130,7 @@ export const getUsers = async (req, res) => {
 
 
 // GET /users/me - Get current authenticated user
-  export const getCurrentUser = async (req, res) => {
+const getCurrentUser = async (req, res) => {
   const me = req.me; 
   if (!me) throw new Error("Unauthorized");
 
@@ -174,7 +174,7 @@ export const getUsers = async (req, res) => {
 }
 
 // GET /users/:userId (separated by roletype)
-export const getUserById = async (req, res) => {
+const getUserById = async (req, res) => {
   const id = Number(req.params.userId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
@@ -235,7 +235,7 @@ export const getUserById = async (req, res) => {
 
 
 // updates user identified by Id
-export const patchUserById = async (req, res) => {
+const patchUserById = async (req, res) => {
     const id = Number(req.params.userId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
@@ -333,3 +333,11 @@ export const patchUserById = async (req, res) => {
   return res.status(200).json(response);
 }
 
+
+module.exports = {
+    postUser,
+    getUsers,
+    getCurrentUser,
+    getUserById,
+    patchUserById
+};
