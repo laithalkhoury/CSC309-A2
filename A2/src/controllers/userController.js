@@ -334,10 +334,54 @@ const patchUserById = async (req, res) => {
 }
 
 
+
+// PATCH /users/me - Update current user's info
+const patchCurrentUser = async (req, res) => {
+  // TODO: Implement logic to update current user's info
+  return res.status(501).json({ error: "Not Implemented" });
+};
+
+// PATCH /users/me/password - Update current user's password
+const patchCurrentUserPassword = async (req, res) => {
+  // TODO: Implement logic to update current user's password
+  return res.status(501).json({ error: "Not Implemented" });
+};
+
+
+// POST /users/me/transactions - Create a new redemption transaction for the current user
+const postRedemptionTransaction = async (req, res) => {
+  // TODO: Implement logic for redemption transaction
+  return res.status(501).json({ error: "Not Implemented" });
+};
+
+// GET /users/me/transactions - Get current user's transactions
+const getCurrentUserTransactions = async (req, res) => {
+  // TODO: Implement logic to get current user's transactions
+  return res.status(501).json({ error: "Not Implemented" });
+};
+
+// GET /users/:userId/transactions - Get user's transactions
+const getUserTransactions = async (req, res) => {
+  // TODO: Implement logic to get user's transactions by ID
+  return res.status(501).json({ error: "Not Implemented" });
+};
+
+// POST /users/:userId/transactions - Create a new transfer transaction
+const postTransferTransaction = async (req, res) => {
+  // TODO: Implement logic for transfer transaction
+  return res.status(501).json({ error: "Not Implemented" });
+};
+
 module.exports = {
-    postUser,
-    getUsers,
-    getCurrentUser,
-    getUserById,
-    patchUserById
+  postUser,
+  getUsers,
+  getCurrentUser,
+  getUserById,
+  patchUserById,
+  patchCurrentUser,
+  patchCurrentUserPassword,
+  postRedemptionTransaction,
+  getCurrentUserTransactions,
+  getUserTransactions,
+  postTransferTransaction
 };

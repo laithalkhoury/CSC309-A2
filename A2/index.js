@@ -20,14 +20,15 @@ const port = (() => {
 
 const express = require("express");
 const app = express();
+require("dotenv").config();
 
 app.use(express.json());
 
 // ADD YOUR WORK HERE
 
 // Import routers
-const authRouter = require("./src/routes/auth.js").default;
-const userRouter = require("./src/routes/users.js").default;
+const authRouter = require("./src/routes/auth.js");
+const userRouter = require("./src/routes/users.js");
 
 
 
