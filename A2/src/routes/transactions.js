@@ -1,13 +1,14 @@
-import express from "express";
+const express = require("express");
 
-import {
+
+const {
     postTransaction,
     getTransactions,
     getTransactionById,
     patchTransactionAsSuspiciousById,
     patchRedemptionTransactionStatusById,
     adjustmentTransaction,
-} from "../controllers/transactionController.js";
+} = require("../controllers/transactionController.js");
 
 const router = express.Router();
 
