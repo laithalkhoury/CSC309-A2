@@ -245,7 +245,7 @@ export const adjustmentTransaction = async(req, res) => {
         throw new Error("Bad Request");
     }
 
-    // TODO: Validate promotion IDs if required .......................................................................
+    // Pan said we need to add amount only - no need to do anything with promotions
 
     // Get the manager creating the adjustment
     const manager = req.me; // set by auth middleware
@@ -270,7 +270,7 @@ export const adjustmentTransaction = async(req, res) => {
     }
     });
 
-    // Update customer's points DOUBLE CHECK LOGIC IN PIAZZA ...................................
+    // Update customer's points 
     await prisma.user.update({
         where: {id: customer.id },
         data: { points: customer.points + amount }
@@ -318,8 +318,164 @@ export const adjustmentTransaction = async(req, res) => {
 
 // GET /transactions - Retrieve a list of transactions
 export const getTransactions = async(req, res) => {
-    // To be implemented
-}
+    const {
+        name, 
+        createdBy, 
+        suspicious, 
+        promotionId, 
+        type, 
+        relatedId, 
+        amount, 
+        operator, 
+        page = 1, 
+        limit = 10 
+    } = req.query;
+
+    // Validate pagination parameters
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    
+    if (isNaN(pageNum) || pageNum < 1) {
+        throw new Error("Bad Request");
+    }
+    
+    if (isNaN(limitNum) || limitNum < 1) {
+        throw new Error("Bad Request");
+    }
+
+    // Build where clause for filtering - ALL filters are applied together (AND logic)
+    const whereClause = {};
+
+    // Filter by user name or utorid
+    if (name) {
+        whereClause.user = {
+            OR: [
+                { name: { contains: name } },
+                { utorid: { contains: name } }
+            ]
+        };
+    }
+
+    // Filter by creator utorid
+    if (createdBy) {
+        whereClause.createdBy = {
+            utorid: createdBy
+        };
+    }
+
+    // Filter by suspicious status
+    if (suspicious !== undefined) {
+        const suspiciousValue = suspicious === 'true';
+        whereClause.suspicious = suspiciousValue;
+    }
+
+    // Filter by promotion ID
+    if (promotionId) {
+        const promoId = Number(promotionId);
+        if (isNaN(promoId)) {
+            throw new Error("Bad Request");
+        }
+        whereClause.promotions = {
+            some: {
+                id: promoId
+            }
+        };
+    }
+
+    // Filter by transaction type
+    if (type) {
+        whereClause.type = type;
+    }
+
+    // Filter by relatedID CHECK a2 SPEC I THINK THERES SOMETHING I HAVENT IMPLEMENTED...............................
+    if (relatedId) {
+        if (!type) {
+            throw new Error("Bad Request");
+        }
+        const relId = Number(relatedId);
+        if (isNaN(relId)) {
+            throw new Error("Bad Request");
+        }
+        whereClause.relatedId = relId;
+    }
+
+    // Filter by amount with operator
+    if (amount !== undefined) {
+        if (!operator) {
+            throw new Error("Bad Request");
+        }
+
+        const amountNum = Number(amount);
+        if (isNaN(amountNum)) {
+            throw new Error("Bad Request");
+        }
+
+        if (operator === 'gte') {
+            whereClause.amount = { gte: amountNum };
+        } else if (operator === 'lte') {
+            whereClause.amount = { lte: amountNum };
+        } else {
+            throw new Error("Bad Request");
+        }
+    } else if (operator) {
+        throw new Error("Bad Request");
+    }
+
+    // Calculate skip for pagination
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get total count for pagination
+    const count = await prisma.transaction.count({
+        where: whereClause
+    });
+
+
+    // Get transactions with ALL filters applied
+    const transactions = await prisma.transaction.findMany({
+        where: whereClause,
+        include: {
+            user: { select: { utorid: true } },
+            createdBy: { select: { utorid: true } },
+            promotions: { select: { id: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: skip,
+        take: limitNum
+    });
+
+    // Format response
+    const results = transactions.map(transaction => ({
+        id: transaction.id,
+        utorid: transaction.user.utorid,
+        amount: transaction.amount,
+        type: transaction.type,
+        spent: transaction.spent,
+        promotionIds: transaction.promotions.map(p => p.id),
+        suspicious: transaction.suspicious,
+        remark: transaction.remark || "",
+        createdBy: transaction.createdBy?.utorid || null,
+        ...(transaction.relatedId && { relatedId: transaction.relatedId }),
+        ...(transaction.redeemed !== null && { redeemed: transaction.redeemed })
+    }));
+
+    return res.status(200).json({
+        count: count,
+        results: results
+    });
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // GET /transactions/:transactionId - Retrieve a single transaction by ID
 export const getTransactionById = async(req, res) => {
@@ -353,7 +509,7 @@ export const getTransactionById = async(req, res) => {
         type: transaction.type,
         spent: transaction.spent,
         amount: transaction.amount,
-        promotionIDs: transaction.promotions.map(p => p.id),
+        promotionIds: transaction.promotions.map(p => p.id),
         suspicious: transaction.suspicious,
         remark: transaction.remark,
         createdBy: transaction.createdBy.utorid
@@ -385,7 +541,7 @@ export const patchTransactionAsSuspiciousById = async(req, res) => {
         throw new Error("Bad Request");
     }
 
-    // Validate suspicious fielfd
+    // Validate suspicious field
     if(typeof suspicious !== "boolean") {
         throw new Error("Bad Request");
     }
@@ -457,7 +613,7 @@ export const patchTransactionAsSuspiciousById = async(req, res) => {
         suspicious: transaction.suspicious,
         remark: transaction.remark,
         createdBy: transaction.createdBy.utorid
-    })
+    });
 
 
 
