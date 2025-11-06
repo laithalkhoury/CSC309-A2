@@ -1,4 +1,4 @@
-/* Authentication Middleware Logic, to be called in every route endpoint */
+/* Authentication Middleware Logic, to be called in every route endpoint that requires a logged-in user */
 
 const {expressjwt: jwt} = require('express-jwt');
 const prisma = require('../prismaClient');
