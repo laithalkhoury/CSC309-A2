@@ -6,15 +6,36 @@ import {
     getTransactionById,
     patchTransactionAsSuspiciousById,
     patchRedemptionTransactionStatusById,
+    adjustmentTransaction,
 } from "../controllers/transactionController.js";
 
 const router = express.Router();
 
-router.post("/", postTransaction);
-// need to add adjustment transaction route here
+router.post("/", handleTransaction);
 router.get("/", getTransactions);
 router.get("/:transactionId", getTransactionById);
 router.patch("/:transactionId/suspicious", patchTransactionAsSuspiciousById);
 router.patch("/:transactionId/processed", patchRedemptionTransactionStatusById);
+
+
+// Unified transaction handler to handle purchase AND adjustment transactions
+const handleTransaction = async(req, res, next) => {
+    try{
+        const{type} = req.body;
+        if(type === "purchase"){
+            return await postTransaction(req, res);
+        }
+        else if(type === "adjustment"){
+            return await adjustmentTransaction(req, res);
+        }
+        else{
+            throw new Error("Bad Request");
+        }
+    } catch(error){
+        next(error);    
+    }   
+    }
+
+
 
 export default router;

@@ -4,6 +4,16 @@ const { generateToken } = require("../services/jwt");
 const { hashPassword, comparePassword } = require("../services/bcrypt");
 
 
+
+
+
+
+
+
+
+
+
+
 // POST /transactions - Create a new transaction
 export const postTransaction = async(req, res) => {
     
@@ -77,7 +87,7 @@ export const postTransaction = async(req, res) => {
     }
 
     // Calculate points 
-    let pointsEarned = Math.ceil(spent * 4);
+    let pointsEarned = Math.floor(spent / 0.25);
 
     // Apply promotions if any
     for (const promotion of validPromotions){
@@ -85,7 +95,7 @@ export const postTransaction = async(req, res) => {
             pointsEarned += promotion.points;
         }
         if (promotion.rate) {
-            pointsEarned += Math.ceil(spent * 100 * promotion.rate);
+            pointsEarned += Math.floor(spent * 100 * promotion.rate);
         }
     }
 
@@ -106,16 +116,18 @@ export const postTransaction = async(req, res) => {
             spent: spent,
             suspicious: suspicious,
             remark: remark || "",
-            // what is related id ...................................................................
             createdById: cashier.id,
             // TODO createdBY ... how do i Fill ...................................................................
-            // add promotions used
-            /////// finish later
-
-        }    });
+            promotions: {
+                connect: validPromotions.map(promo => ({ id: promo.id }))
+                }
+            },
+        
+        include: {
+            promotions: { select: { id: true } }
+            }
+          });
     
-    // FINISH ABOVE INSERT
-
     // Update customer's points if cashier is not suspicious
     if (!suspicious){
         await prisma.user.update({
@@ -149,15 +161,161 @@ export const postTransaction = async(req, res) => {
         spent: transaction.spent,
         earned: suspicious ? 0 : transaction.amount, // if suspicious, earned points are 0.........................
         remark: transaction.remark,
-        promotionIDs: transaction.promotions.map(p => p.id),
+        promotionIds: transaction.promotions.map(p => p.id),
         createdBy: cashier.utorid,
     });
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // POST /transactions - Create a new adjustment transaction
 export const adjustmentTransaction = async(req, res) => {
-    // To be implemented
+    const { utorid, type, amount, relatedId, promotionIds = [], remark = "" } = req.body;
+
+    // Validate required fields
+    if (!utorid || !type || amount === undefined || relatedId === undefined) {
+        throw new Error("Bad Request");
+    }
+
+    // Validate utorid format
+    const utoridRegex = /^[a-zA-Z0-9]{7,8}$/;
+    if (!utoridRegex.test(utorid)) {
+        throw new Error("Bad Request");
+    }
+
+    // Validate type
+    if (type !== "adjustment") {
+        throw new Error("Bad Request");
+    }
+
+    // Validate amount
+    if (typeof amount !== "number") {
+        throw new Error("Bad Request");
+    }
+
+    // Validate relatedId
+    if (typeof relatedId !== "number" || relatedId <=0 ) {
+        throw new Error("Bad Request");
+    }
+
+    // Find the customer by utorid
+    const customer = await prisma.user.findUnique({
+        where: { utorid }
+    });
+
+    // Check if customer exists
+    if (!customer) {
+        throw new Error("Bad Request");
+    }
+
+    // Find the related transaction
+    const relatedTransaction = await prisma.transaction.findUnique({
+        where: { id: relatedId }
+    });
+
+    // Check if related transaction exists
+    if (!relatedTransaction) {
+        throw new Error("Bad Request");
+    }
+
+    // TODO: Validate promotion IDs if required .......................................................................
+
+    // Get the manager creating the adjustment
+    const manager = req.me; // set by auth middleware
+    
+    // Create the adjustment transaction
+    const transaction = await prisma.transaction.create({
+        data: {
+            userId: customer.id,
+            // user
+            type: "adjustment",
+            amount: amount,
+            remark: remark || "",
+            relatedId: relatedTransaction.id,
+            createdById: manager.id,
+            // createdBy
+            promotions: {
+                connect: promotionIds.map(promo => ({ id: promo.id }))
+            }
+        },
+        include: {
+        promotions: { select: { id: true } }
+    }
+    });
+
+    // Update customer's points DOUBLE CHECK LOGIC IN PIAZZA ...................................
+    await prisma.user.update({
+        where: {id: customer.id },
+        data: { points: customer.points + amount }
+    });
+
+    // Return transaction response
+    return res.status(201).json({
+        id: transaction.id,
+        utorid: customer.utorid,
+        amount: transaction.amount,
+        type: transaction.type,
+        relatedId: transaction.relatedId,
+        remark: transaction.remark,
+        promotionIds: transaction.promotions.map(p => p.id),
+        createdBy: manager.utorid,
+
+    })
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // GET /transactions - Retrieve a list of transactions
