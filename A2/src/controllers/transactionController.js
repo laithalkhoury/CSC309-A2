@@ -391,9 +391,12 @@ export const patchTransactionAsSuspiciousById = async(req, res) => {
     }
 
     // Find the transaction by ID
-    const transaction = await prisma.transaction.findUnique({
+    let transaction = await prisma.transaction.findUnique({
         where: {id: transId },
-        include: { user: true } // check if i need to add other stuff like promotions and createdBy..........
+        include: { user: true,
+            createdBy: true,
+            promotions: true
+         } 
     })
 
     // Check if transaction exists
@@ -416,7 +419,47 @@ export const patchTransactionAsSuspiciousById = async(req, res) => {
         });
     }
 
-    // Update
+    // Update the transaction's suspicious status
+    transaction = await prisma.transaction.update({
+        where: {id: transId},
+        data: {suspicious: suspicious },
+        include: { user: true,
+            createdBy: true,
+            promotions: true
+         } 
+    })
+
+    // Adjust user's points balance
+    let pointAdjustment = 0;
+
+    if (suspicious) {
+        // If marking as suspicious, deduct points
+        pointAdjustment = -transaction.amount;
+    } else{
+        // If marking as unsuspicious add points
+        pointAdjustment = transaction.amount;
+    }
+
+    // Update user's points
+    await prisma.user.update({
+        where: {id: transaction.userId},
+        data: { points: transaction.user.points + pointAdjustment }
+    });
+
+    // Return updated transaction details
+    return res.status(200).json({
+        id: transaction.id,
+        utorid: transaction.user.utorid,
+        type: transaction.type,
+        spent: transaction.spent,
+        amount: transaction.amount,
+        promotionIds: transaction.promotions.map(p => p.id),
+        suspicious: transaction.suspicious,
+        remark: transaction.remark,
+        createdBy: transaction.createdBy.utorid
+    })
+
+
 
 
 
