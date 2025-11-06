@@ -15,7 +15,7 @@ const {
   patchUserById,
   getUserTransactions,
   postTransferTransaction,
-} = require("../controllers/usersController");
+} = require("../controllers/userController");
 
 // POST /users - Register a new user (cashier or higher)
 router.post("/", authenticate, requires("cashier"), postUser);

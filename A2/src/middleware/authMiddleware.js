@@ -1,11 +1,11 @@
-/* Authentication Middleware Logic, to be called in every route endpoint that requires a logged-in user */
+/* Authentication Middleware Logic, to be called in every route endpoint */
 
 const {expressjwt: jwt} = require('express-jwt');
 const prisma = require('../prismaClient');
 
 
 const authenticate = jwt({
-    secret: process.env.JWT_SECRET,
+    secret: process.env.JWT_SECRET || "secretkey",
     algorithms: ['HS256']
 })
 

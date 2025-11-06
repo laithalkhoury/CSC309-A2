@@ -29,12 +29,14 @@ app.use(express.json());
 // Import routers
 const authRouter = require("./src/routes/auth.js");
 const userRouter = require("./src/routes/users.js");
+const transactionRouter = require("./src/routes/transactions.js");
 
 
 
 // Mount routers
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
+app.use("/transactions", transactionRouter);
 
 
 
