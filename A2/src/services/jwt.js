@@ -1,6 +1,6 @@
-import jwt from "jsonwebtoken";
+const jwt = require("jsonwebtoken");
 
-export function generateToken(user) {
+function generateToken(user) {
   const expiresIn = "7d";
   const token = jwt.sign(
     { userId: user.id, role: user.role },
@@ -12,3 +12,7 @@ export function generateToken(user) {
 
   return { token, expiresAt };
 }
+
+module.exports = {
+  generateToken,
+};
