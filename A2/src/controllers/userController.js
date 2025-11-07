@@ -69,17 +69,36 @@ const postUser = async (req, res, next) => {
 // GET /users - Retrieve a list of users (manager or higher)
 const getUsers = async (req, res, next) => {
   try {
-    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
+    const { name, role, verified, activated, page, limit } = req.query;
 
-    const pageNum = Math.max(parseInt(page) || 1, 1);
-    const limitNum = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
+    const parsePositiveInt = (value, defaultValue, { max } = {}) => {
+      if (value === undefined) return defaultValue;
+      if (typeof value === "string" && value.trim() === "") {
+        throw new Error("Bad Request");
+      }
+
+      const num = Number(value);
+      if (!Number.isInteger(num) || num <= 0) {
+        throw new Error("Bad Request");
+      }
+
+      if (max !== undefined && num > max) {
+        return max;
+      }
+
+      return num;
+    };
+
+    const pageNum = parsePositiveInt(page, 1);
+    const limitNum = parsePositiveInt(limit, 10, { max: 100 });
 
     const where = {};
 
     if (name) {
+      const search = String(name);
       where.OR = [
-        { utorid: { contains: String(name), mode: "insensitive" } },
-        { name: { contains: String(name), mode: "insensitive" } },
+        { utorid: { contains: search } },
+        { name: { contains: search } },
       ];
     }
 
@@ -256,23 +275,29 @@ const patchUserById = async (req, res, next) => {
     if (!meRole) throw new Error("Unauthorized");
 
     if (role !== undefined) {
-      if (!["regular", "cashier", "manager", "superuser"].includes(role))
+      if (!["regular", "cashier", "manager", "superuser"].includes(role)) {
         throw new Error("Bad Request");
+      }
 
-      if (meRole === "manager" && !["regular", "cashier"].includes(role))
+      if (meRole === "manager" && !["regular", "cashier"].includes(role)) {
         throw new Error("Forbidden");
+      }
     }
 
     if (email !== undefined) {
-      const emailOk = typeof email === "string" &&
+      const emailOk =
+        typeof email === "string" &&
         /^[A-Za-z0-9._%+-]+@(mail\.)?utoronto\.ca$/.test(email);
       if (!emailOk) throw new Error("Bad Request");
     }
 
-    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
-
-    if (suspicious !== undefined && typeof suspicious !== "boolean")
+    if (verified !== undefined && typeof verified !== "boolean") {
       throw new Error("Bad Request");
+    }
+
+    if (suspicious !== undefined && typeof suspicious !== "boolean") {
+      throw new Error("Bad Request");
+    }
 
     const current = await prisma.user.findUnique({
       where: { id },
@@ -284,14 +309,15 @@ const patchUserById = async (req, res, next) => {
     const response = { id: current.id, utorid: current.utorid, name: current.name };
 
     if (email !== undefined) data.email = email;
-    if (verified !== undefined) data.verified = true;
+    if (verified !== undefined) data.verified = verified;
     if (suspicious !== undefined) data.suspicious = suspicious;
     if (role !== undefined) data.role = role;
 
     if (role === "cashier") {
-      if (suspicious === true) throw new Error("Bad Request");
-      if (current.suspicious === true && suspicious === undefined) {
-        data.suspicious = false;
+      const finalSuspicious =
+        suspicious !== undefined ? suspicious : current.suspicious;
+      if (finalSuspicious) {
+        throw new Error("Bad Request");
       }
     }
 

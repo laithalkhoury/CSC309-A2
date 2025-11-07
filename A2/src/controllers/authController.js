@@ -52,23 +52,22 @@ const requestPasswordReset = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const clientIp = req.ip;
+    const clientIp = req.ip || "unknown";
+    const key = `${clientIp}:${utorid.toLowerCase()}`;
     const now = Date.now();
-    const lastRequestTime = rateLimiter.get(clientIp);
+    const lastRequestTime = rateLimiter.get(key);
 
     if (lastRequestTime && now - lastRequestTime < 60 * 1000) {
       return res.status(429).json({ error: "Too Many Requests" });
     }
 
-    rateLimiter.set(clientIp, now);
+    rateLimiter.set(key, now);
 
-    // Clean old entries
-    if (rateLimiter.size > 1000) {
-      const cutoff = now - 60000;
-      for (const [ip, timestamp] of rateLimiter.entries()) {
-        if (timestamp < cutoff) {
-          rateLimiter.delete(ip);
-        }
+    // Clean entries older than one minute to keep the map bounded
+    const cutoff = now - 60 * 1000;
+    for (const [storedKey, timestamp] of rateLimiter.entries()) {
+      if (timestamp < cutoff) {
+        rateLimiter.delete(storedKey);
       }
     }
 
@@ -116,8 +115,8 @@ const resetPassword = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const user = await prisma.user.findFirst({
-      where: { utorid, resetToken },
+    const user = await prisma.user.findUnique({
+      where: { resetToken },
     });
 
     if (!user) {
