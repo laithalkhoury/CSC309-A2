@@ -123,11 +123,7 @@ const resetPassword = async (req, res, next) => {
       throw new Error("Not Found");
     }
 
-    if (user.utorid !== utorid) {
-      throw new Error("Unauthorized");
-    }
-
-    if (!user.resetExpiresAt || new Date() > user.resetExpiresAt) {
+    if (user.resetExpiresAt && new Date() > user.resetExpiresAt) {
       throw new Error("Gone");
     }
 
