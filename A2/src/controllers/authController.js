@@ -17,7 +17,9 @@ const authUser = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const user = await prisma.user.findUnique({ where: { utorid } });
+    const normalizedUtorid = String(utorid).toLowerCase();
+
+    const user = await prisma.user.findUnique({ where: { utorid: normalizedUtorid } });
     if (!user || !user.password) {
       throw new Error("Unauthorized");
     }
@@ -112,7 +114,7 @@ const resetPassword = async (req, res, next) => {
 
     // Validate password strength
     const passwordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,64}$/;
     if (!passwordRegex.test(password)) {
       throw new Error("Bad Request");
     }

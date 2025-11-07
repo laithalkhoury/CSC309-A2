@@ -776,7 +776,7 @@ const createRewardTransaction = async (req, res, next) => {
       return created;
     });
 
-    return res.status(201).json({
+    return res.status(200).json({
       count: transactions.length,
       results: transactions.map((t) => ({
         id: t.id,

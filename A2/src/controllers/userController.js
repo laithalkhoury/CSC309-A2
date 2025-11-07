@@ -96,7 +96,7 @@ const postUser = async (req, res, next) => {
 // GET /users - Retrieve a list of users (manager or higher)
 const getUsers = async (req, res, next) => {
   try {
-    const { name, role, verified, activated, page = 1, limit = 20 } = req.query;
+    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -300,21 +300,28 @@ const patchUserById = async (req, res, next) => {
     const meRole = req.me?.role;
     if (!meRole) throw new Error("Unauthorized");
 
+    let desiredRole;
     if (role !== undefined) {
-      if (!["regular", "cashier", "manager", "superuser"].includes(role))
-        throw new Error("Bad Request");
+      if (typeof role !== "string") throw new Error("Bad Request");
+      desiredRole = role.toLowerCase();
 
-      if (meRole === "manager" && !["regular", "cashier"].includes(role))
+      if (!VALID_ROLES.includes(desiredRole)) throw new Error("Bad Request");
+
+      if (meRole === "manager" && desiredRole === "superuser") {
         throw new Error("Forbidden");
+      }
     }
 
     if (email !== undefined) {
-      const emailOk = typeof email === "string" &&
+      const emailOk =
+        typeof email === "string" &&
         /^[A-Za-z0-9._%+-]+@(mail\.)?utoronto\.ca$/.test(email);
       if (!emailOk) throw new Error("Bad Request");
     }
 
-    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
+    if (verified !== undefined && typeof verified !== "boolean") {
+      throw new Error("Bad Request");
+    }
 
     if (suspicious !== undefined && typeof suspicious !== "boolean")
       throw new Error("Bad Request");
@@ -329,11 +336,11 @@ const patchUserById = async (req, res, next) => {
     const response = { id: current.id, utorid: current.utorid, name: current.name };
 
     if (email !== undefined) data.email = email.toLowerCase();
-    if (verified !== undefined) data.verified = true;
+    if (verified !== undefined) data.verified = verified;
     if (suspicious !== undefined) data.suspicious = suspicious;
-    if (role !== undefined) data.role = role;
+    if (desiredRole !== undefined) data.role = desiredRole;
 
-    if (role === "cashier") {
+    if (desiredRole === "cashier") {
       if (suspicious === true) throw new Error("Bad Request");
       if (current.suspicious === true && suspicious === undefined) {
         data.suspicious = false;
@@ -354,13 +361,15 @@ const patchUserById = async (req, res, next) => {
       },
     });
 
-    if (email !== undefined) response.email = updated.email;
-    if (verified !== undefined) response.verified = updated.verified;
-    if (
-      suspicious !== undefined ||
-      (role === "cashier" && current.suspicious === true && suspicious === undefined)
-    ) response.suspicious = updated.suspicious;
-    if (role !== undefined) response.role = updated.role;
+      if (email !== undefined) response.email = updated.email;
+      if (verified !== undefined) response.verified = updated.verified;
+      if (
+        suspicious !== undefined ||
+        (desiredRole === "cashier" && current.suspicious === true && suspicious === undefined)
+      ) {
+        response.suspicious = updated.suspicious;
+      }
+      if (desiredRole !== undefined) response.role = updated.role;
 
     return res.status(200).json(response);
   } catch (err) {
@@ -463,7 +472,7 @@ const patchCurrentUserPassword = async (req, res, next) => {
     }
 
     const passwordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,64}$/;
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,64}$/;
     if (!passwordRegex.test(newPassword)) {
       throw new Error("Bad Request");
     }
