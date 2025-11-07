@@ -96,7 +96,7 @@ const postUser = async (req, res, next) => {
 // GET /users - Retrieve a list of users (manager or higher)
 const getUsers = async (req, res, next) => {
   try {
-    const { name, role, verified, activated, page = 1, limit = 20 } = req.query;
+    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -288,23 +288,25 @@ const patchUserById = async (req, res, next) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
-    const { email, verified, suspicious, role } = req.body;
+    const { name, email, birthday, verified, suspicious, role } = req.body ?? {};
 
     if (
+      name === undefined &&
       email === undefined &&
       verified === undefined &&
       suspicious === undefined &&
-      role === undefined
+      role === undefined &&
+      birthday === undefined
     ) throw new Error("Bad Request");
 
     const meRole = req.me?.role;
     if (!meRole) throw new Error("Unauthorized");
 
     if (role !== undefined) {
-      if (!["regular", "cashier", "manager", "superuser"].includes(role))
+      if (typeof role !== "string" || !VALID_ROLES.includes(role))
         throw new Error("Bad Request");
 
-      if (meRole === "manager" && !["regular", "cashier"].includes(role))
+      if (meRole === "manager" && role === "superuser")
         throw new Error("Forbidden");
     }
 
@@ -314,24 +316,60 @@ const patchUserById = async (req, res, next) => {
       if (!emailOk) throw new Error("Bad Request");
     }
 
-    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
+    if (verified !== undefined && typeof verified !== "boolean")
+      throw new Error("Bad Request");
 
     if (suspicious !== undefined && typeof suspicious !== "boolean")
       throw new Error("Bad Request");
 
     const current = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, utorid: true, name: true, suspicious: true, role: true }
+      select: {
+        id: true,
+        utorid: true,
+        name: true,
+        email: true,
+        birthday: true,
+        verified: true,
+        suspicious: true,
+        role: true,
+      },
     });
     if (!current) throw new Error("Not Found");
 
+    if (meRole === "manager" && current.role === "superuser") {
+      throw new Error("Forbidden");
+    }
+
     const data = {};
-    const response = { id: current.id, utorid: current.utorid, name: current.name };
+    const response = {
+      id: current.id,
+      utorid: current.utorid,
+    };
+
+    if (name !== undefined) {
+      if (typeof name !== "string" || name.trim().length === 0 || name.length > 50)
+        throw new Error("Bad Request");
+      data.name = name.trim();
+      response.name = data.name;
+    } else {
+      response.name = current.name;
+    }
 
     if (email !== undefined) data.email = email.toLowerCase();
-    if (verified !== undefined) data.verified = true;
+    if (verified !== undefined) data.verified = verified;
     if (suspicious !== undefined) data.suspicious = suspicious;
     if (role !== undefined) data.role = role;
+
+    if (birthday !== undefined) {
+      if (birthday === null || birthday === "") {
+        data.birthday = null;
+      } else {
+        const parsed = new Date(birthday);
+        if (Number.isNaN(parsed.valueOf())) throw new Error("Bad Request");
+        data.birthday = parsed;
+      }
+    }
 
     if (role === "cashier") {
       if (suspicious === true) throw new Error("Bad Request");
@@ -348,6 +386,7 @@ const patchUserById = async (req, res, next) => {
         utorid: true,
         name: true,
         email: true,
+        birthday: true,
         verified: true,
         suspicious: true,
         role: true,
@@ -355,12 +394,22 @@ const patchUserById = async (req, res, next) => {
     });
 
     if (email !== undefined) response.email = updated.email;
+    else response.email = current.email;
+
+    if (birthday !== undefined) response.birthday = updated.birthday;
+    else response.birthday = current.birthday;
+
     if (verified !== undefined) response.verified = updated.verified;
+    else response.verified = current.verified;
+
     if (
       suspicious !== undefined ||
       (role === "cashier" && current.suspicious === true && suspicious === undefined)
     ) response.suspicious = updated.suspicious;
+    else response.suspicious = current.suspicious;
+
     if (role !== undefined) response.role = updated.role;
+    else response.role = current.role;
 
     return res.status(200).json(response);
   } catch (err) {
