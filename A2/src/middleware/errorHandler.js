@@ -5,36 +5,45 @@ function notFound(_req, res, _next) {
 }
 
 function errorHandler(err, _req, res, _next) {
-  
   if (err.name === "UnauthorizedError") {
-    return res.status(401).json({ error: "Unauthorized" }); // jwt token error
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   if (err instanceof SyntaxError && "body" in err) {
     return res.status(400).json({ error: "Bad Request" });
   }
 
-  
-  if (err.code === "P2002") return res.status(409).json({ error: "Conflict" }); // unique violation
-  if (err.code === "P2025") return res.status(404).json({ error: "Not Found" }); // missing row in databse
-
-  // controller-thrown errors when handling endpoints
-  if (err.message === "Bad Request")   return res.status(400).json({ error: "Bad Request" });
-  if (err.message === "Unauthorized")  return res.status(401).json({ error: "Unauthorized" });
-  if (err.message === "Forbidden")     return res.status(403).json({ error: "Forbidden" });
-  if (err.message === "Not Found")     return res.status(404).json({ error: "Not Found" });
-  if (err.message === "Conflict")      return res.status(409).json({ error: "Conflict" });
-
   if (err.type === "entity.parse.failed") {
-  return res.status(400).json({ error: "Bad Request" });
-}
+    return res.status(400).json({ error: "Bad Request" });
+  }
+
+  if (err.code === "P2002") {
+    return res.status(409).json({ error: "Conflict" });
+  }
+
+  if (err.code === "P2025") {
+    return res.status(404).json({ error: "Not Found" });
+  }
 
   if (err.code === "P2003") {
-  return res.status(400).json({ error: "Bad Request" });
-}
+    return res.status(400).json({ error: "Bad Request" });
+  }
+
+  const map = {
+    "Bad Request": 400,
+    Unauthorized: 401,
+    Forbidden: 403,
+    "Not Found": 404,
+    Conflict: 409,
+    Gone: 410,
+  };
+
+  if (err.message && map[err.message]) {
+    return res.status(map[err.message]).json({ error: err.message });
+  }
 
   console.error(err);
-  res.status(500).json({ error: "Server error" });
+  return res.status(500).json({ error: "Server error" });
 }
 
 module.exports = { notFound, errorHandler };
