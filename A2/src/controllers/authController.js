@@ -126,7 +126,7 @@ const resetPassword = async (req, res, next) => {
     }
 
     if (tokenOwner.resetExpiresAt && new Date() > tokenOwner.resetExpiresAt) {
-      throw new Error("Not Found");
+      throw new Error("Gone");
     }
 
     const normalizedUtorid = String(utorid).toLowerCase();

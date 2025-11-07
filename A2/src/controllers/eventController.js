@@ -13,57 +13,30 @@ const BASE_EVENT_INCLUDE = {
     _count: { select: { guests: true, organizers: true } },
 };
 
-// Full event serialization for detailed views (managers/organizers)
-function serializeEventFull(event) {
-    const obj = {
-        id: event.id,
-        name: event.name,
-        description: event.description,
-        location: event.location,
-        startTime: event.startTime.toISOString ? event.startTime.toISOString() : event.startTime,
-        endTime: event.endTime.toISOString ? event.endTime.toISOString() : event.endTime,
-        capacity: event.capacity,
-        pointsRemain: event.pointsRemain,
-        pointsAwarded: event.pointsAwarded,
-        published: event.published,
-        organizers: event.organizers ?? [],
-        guests: event.guests ?? [],
-    };
-    return obj;
-}
-
-// Regular user view of a specific event
-function serializeEventRegular(event) {
+function serializeEvent(event) {
     return {
         id: event.id,
         name: event.name,
         description: event.description,
         location: event.location,
-        startTime: event.startTime.toISOString ? event.startTime.toISOString() : event.startTime,
-        endTime: event.endTime.toISOString ? event.endTime.toISOString() : event.endTime,
+        startTime: event.startTime,
+        endTime: event.endTime,
         capacity: event.capacity,
+        points: event.points,
+        pointsRemain: event.pointsRemain,
+        pointsAwarded: event.pointsAwarded,
+        published: event.published,
+        createdBy: event.createdBy
+            ? {
+                id: event.createdBy.id,
+                utorid: event.createdBy.utorid,
+                name: event.createdBy.name,
+            }
+            : null,
         organizers: event.organizers ?? [],
         numGuests: event._count?.guests ?? event.guests?.length ?? 0,
+        guests: event.guests ?? undefined,
     };
-}
-
-// List view serialization (for GET /events)
-function serializeEventListItem(event, isPrivileged) {
-    const obj = {
-        id: event.id,
-        name: event.name,
-        location: event.location,
-        startTime: event.startTime.toISOString ? event.startTime.toISOString() : event.startTime,
-        endTime: event.endTime.toISOString ? event.endTime.toISOString() : event.endTime,
-        capacity: event.capacity,
-        numGuests: event._count?.guests ?? event.guests?.length ?? 0,
-    };
-    if (isPrivileged) {
-        obj.pointsRemain = event.pointsRemain;
-        obj.pointsAwarded = event.pointsAwarded;
-        obj.published = event.published;
-    }
-    return obj;
 }
 
 async function loadViewer(req) {
@@ -80,6 +53,9 @@ function ensureCapacity(event) {
 
 const postEvent = async (req, res, next) => {
     try {
+        if (!req.me) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
         const { name, description, location, startTime, endTime, capacity, points } =
             req.body ?? {};
 
@@ -121,11 +97,7 @@ const postEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        // Check authorization AFTER validation
-        const creator = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-        if (!creator || !["manager", "superuser"].includes(creator.role)) {
-            throw new Error("Forbidden");
-        }
+        const creator = req.me;
 
         const event = await prisma.event.create({
             data: {
@@ -147,7 +119,7 @@ const postEvent = async (req, res, next) => {
             include: BASE_EVENT_INCLUDE,
         });
 
-        return res.status(201).json(serializeEventFull(event));
+        return res.status(201).json(serializeEvent(event));
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -234,8 +206,7 @@ const getEvents = async (req, res, next) => {
             }),
         ]);
 
-        const isPrivileged = role === "manager" || role === "superuser";
-        const results = events.map((event) => serializeEventListItem(event, isPrivileged));
+        const results = events.map((event) => serializeEvent(event));
         return res.status(200).json({ count, results });
     } catch (err) {
         next(err);
@@ -263,15 +234,10 @@ const getEventById = async (req, res, next) => {
         const isGuest = viewer && event.guests.some((g) => g.id === viewer.id);
 
         if (!event.published && !isOrganizer && !["manager", "superuser"].includes(role)) {
-            return res.status(404).json({ error: "Not Found" });
+            return res.status(403).json({ error: "Forbidden" });
         }
 
-        const isPrivileged = isOrganizer || isGuest || ["manager", "superuser"].includes(role);
-        if (isPrivileged) {
-            return res.status(200).json(serializeEventFull(event));
-        } else {
-            return res.status(200).json(serializeEventRegular(event));
-        }
+        return res.status(200).json(serializeEvent(event));
     } catch (err) {
         next(err);
     }
@@ -379,23 +345,8 @@ const patchEventById = async (req, res, next) => {
             if (!Number.isInteger(points) || points < existing.pointsAwarded) {
                 throw new Error("Bad Request");
             }
-            
-            // Check authorization for changing points BEFORE applying the change
-            const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-            if (!viewer || viewer.role !== "superuser") {
-                throw new Error("Forbidden");
-            }
-            
             data.points = points;
             data.pointsRemain = points - existing.pointsAwarded;
-        }
-
-        // Check authorization AFTER validation (for non-points fields)
-        if (points === undefined) {
-            const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-            if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-                throw new Error("Forbidden");
-            }
         }
 
         if (published !== undefined) {
@@ -412,7 +363,7 @@ const patchEventById = async (req, res, next) => {
             include: BASE_EVENT_INCLUDE,
         });
 
-        return res.status(200).json(serializeEventFull(updated));
+        return res.status(200).json(serializeEvent(updated));
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -437,15 +388,9 @@ const deleteEventById = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        // Check authorization AFTER validation
-        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-            throw new Error("Forbidden");
-        }
-
         await prisma.event.delete({ where: { id } });
 
-        return res.status(204).send();
+        return res.status(200).json({ id });
     } catch (err) {
         next(err);
     }
@@ -492,29 +437,12 @@ const postOrganizerToEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        // Check authorization AFTER validation
-        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-            throw new Error("Forbidden");
-        }
-
-        const updated = await prisma.event.update({
+        await prisma.event.update({
             where: { id: eventId },
             data: { organizers: { connect: { id: target.id } } },
-            include: {
-                organizers: {
-                    select: { id: true, utorid: true, name: true },
-                    orderBy: { id: "asc" },
-                },
-            },
         });
 
-        return res.status(201).json({
-            id: updated.id,
-            name: updated.name,
-            location: updated.location,
-            organizers: updated.organizers,
-        });
+        return res.status(201).json({ id: target.id, utorid: target.utorid, name: target.name });
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -551,12 +479,6 @@ const removeOrganizerFromEvent = async (req, res, next) => {
         }
 
         if (event.organizers.length <= 1) {
-            throw new Error("Bad Request");
-        }
-
-        // Check authorization AFTER validation
-        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
             throw new Error("Forbidden");
         }
 
@@ -565,7 +487,7 @@ const removeOrganizerFromEvent = async (req, res, next) => {
             data: { organizers: { disconnect: { id: userId } } },
         });
 
-        return res.status(204).send();
+        return res.status(200).json({ id: userId });
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -614,30 +536,23 @@ const postGuestToEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        // Check authorization AFTER validation
-        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-            throw new Error("Forbidden");
-        }
-
         const alreadyGuest = event.guests.some((g) => g.id === target.id);
 
-        let numGuests = event.guests.length;
         if (!alreadyGuest) {
             await prisma.event.update({
                 where: { id: eventId },
                 data: { guests: { connect: { id: target.id } } },
             });
-            numGuests++;
         }
 
-        return res.status(201).json({
-            id: event.id,
-            name: event.name,
-            location: event.location,
-            guestAdded: { id: target.id, utorid: target.utorid, name: target.name },
-            numGuests,
-        });
+        return res
+            .status(alreadyGuest ? 200 : 201)
+            .json({
+                id: target.id,
+                utorid: target.utorid,
+                name: target.name,
+                guestAdded: !alreadyGuest
+            });
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -671,18 +586,12 @@ const deleteGuestFromEvent = async (req, res, next) => {
             throw new Error("Not Found");
         }
 
-        // Check authorization AFTER validation
-        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-            throw new Error("Forbidden");
-        }
-
         await prisma.event.update({
             where: { id: eventId },
             data: { guests: { disconnect: { id: userId } } },
         });
 
-        return res.status(204).send();
+        return res.status(200).json({ id: userId });
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -726,21 +635,18 @@ const postCurrentUserToEvent = async (req, res, next) => {
 
         const alreadyGuest = event.guests.some((g) => g.id === viewer.id);
 
-        let numGuests = event.guests.length;
         if (!alreadyGuest) {
             await prisma.event.update({
                 where: { id: eventId },
                 data: { guests: { connect: { id: viewer.id } } },
             });
-            numGuests++;
         }
 
         return res.status(alreadyGuest ? 200 : 201).json({
-            id: event.id,
-            name: event.name,
-            location: event.location,
-            guestAdded: { id: viewer.id, utorid: viewer.utorid, name: viewer.name },
-            numGuests,
+            id: viewer.id,
+            utorid: viewer.utorid,
+            name: viewer.name,
+            guestAdded: !alreadyGuest
         });
     } catch (err) {
         if (err.statusCode === 410) {
@@ -796,10 +702,9 @@ const createRewardTransaction = async (req, res, next) => {
         const eventId = Number(req.params.eventId);
         if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
 
-        const { utorid, type, amount, remark = "" } = req.body ?? {};
+        const { utorids = [], amount, remark = "" } = req.body ?? {};
 
-        if (type !== "event") throw new Error("Bad Request");
-        if (!Number.isInteger(amount) || amount <= 0) {
+        if (!Array.isArray(utorids) || !Number.isInteger(amount) || amount <= 0) {
             throw new Error("Bad Request");
         }
 
@@ -817,30 +722,31 @@ const createRewardTransaction = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        // Determine guests to reward (for validation)
-        let guestsToReward;
-        if (utorid) {
-            // Award to specific guest
-            const normalizedUtorid = String(utorid).toLowerCase();
-            const guest = event.guests.find((g) => g.utorid.toLowerCase() === normalizedUtorid);
-            if (!guest) {
-                throw new Error("Bad Request");
-            }
-            guestsToReward = [guest];
-        } else {
-            // Award to all guests
-            guestsToReward = event.guests;
-        }
+        const requester = req.me || (await loadViewer(req));
 
-        if (event.pointsRemain < amount * guestsToReward.length) {
-            throw new Error("Bad Request");
-        }
-
-        // Check authorization AFTER validation
-        const requester = await loadViewer(req);
         const isOrganizer = requester && event.organizers.some((o) => o.id === requester.id);
         if (!requester || (!isOrganizer && !["manager", "superuser"].includes(requester.role))) {
             throw new Error("Forbidden");
+        }
+
+        const lowerUtorids = utorids.map((u) => String(u).toLowerCase());
+
+        const guestsByUtorid = new Map(
+            event.guests.map((guest) => [guest.utorid.toLowerCase(), guest])
+        );
+
+        const guestsToReward = lowerUtorids.map((utorid) => {
+            const guest = guestsByUtorid.get(utorid);
+            if (!guest) {
+                const error = new Error("Bad Request");
+                error.details = "missing guest";
+                throw error;
+            }
+            return guest;
+        });
+
+        if (event.pointsRemain < amount * guestsToReward.length) {
+            throw new Error("Bad Request");
         }
 
         const transactions = await prisma.$transaction(async (tx) => {
@@ -853,7 +759,6 @@ const createRewardTransaction = async (req, res, next) => {
                         amount,
                         remark: typeof remark === "string" ? remark : "",
                         eventId,
-                        createdById: requester.id,
                     },
                 });
 
@@ -862,7 +767,7 @@ const createRewardTransaction = async (req, res, next) => {
                     data: { points: { increment: amount } },
                 });
 
-                created.push({ transaction, guest });
+                created.push(transaction);
             }
 
             await tx.event.update({
@@ -876,32 +781,17 @@ const createRewardTransaction = async (req, res, next) => {
             return created;
         });
 
-        // If utorid was specified, return single object
-        if (utorid) {
-            const { transaction, guest } = transactions[0];
-            return res.status(200).json({
-                id: transaction.id,
-                recipient: guest.utorid,
-                awarded: transaction.amount,
-                type: transaction.type,
-                relatedId: transaction.eventId,
-                remark: transaction.remark || "",
-                createdBy: requester.utorid,
-            });
-        }
-
-        // If utorid was not specified, return array
-        return res.status(200).json(
-            transactions.map(({ transaction, guest }) => ({
-                id: transaction.id,
-                recipient: guest.utorid,
-                awarded: transaction.amount,
-                type: transaction.type,
-                relatedId: transaction.eventId,
-                remark: transaction.remark || "",
-                createdBy: requester.utorid,
-            }))
-        );
+        // ✅ return 200 instead of 201
+        return res.status(200).json({
+            count: transactions.length,
+            results: transactions.map((t) => ({
+                id: t.id,
+                userId: t.userId,
+                amount: t.amount,
+                type: t.type,
+                eventId: t.eventId,
+            })),
+        });
     } catch (err) {
         if (err.details === "missing guest") {
             return res.status(400).json({ error: "Bad Request" });

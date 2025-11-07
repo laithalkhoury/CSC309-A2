@@ -67,7 +67,7 @@ const postTransaction = async (req, res, next) => {
       }
 
       for (const promo of validPromotions) {
-        if (promo.type === "onetime") {
+        if (promo.type === "one_time") {
           const alreadyUsed = promo.usedByUsers.some(
             (u) => u.id === customer.id
           );
@@ -80,12 +80,6 @@ const postTransaction = async (req, res, next) => {
       }
     }
 
-    // Check authorization AFTER validation
-    const cashier = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!cashier || !["cashier", "manager", "superuser"].includes(cashier.role)) {
-      throw new Error("Forbidden");
-    }
-
     const basePoints = Math.round(spent / 0.25);
     let pointsEarned = basePoints;
     for (const promo of validPromotions) {
@@ -93,7 +87,8 @@ const postTransaction = async (req, res, next) => {
       if (promo.rate) pointsEarned += Math.round(basePoints * promo.rate);
     }
 
-    const suspicious = cashier.suspicious || false;
+    const cashier = req.me;
+    const suspicious = cashier?.suspicious || false;
 
     const transaction = await prisma.transaction.create({
       data: {
@@ -127,15 +122,15 @@ const postTransaction = async (req, res, next) => {
       },
     });
 
+    // POST requests that create resources should return 201
     return res.status(201).json({
       id: transaction.id,
       utorid: customer.utorid,
       type: transaction.type,
       spent: transaction.spent,
-      amount: transaction.amount,
-      promotionIds: transaction.promotions.map((p) => p.id),
-      suspicious: transaction.suspicious,
+      earned: suspicious ? 0 : transaction.amount,  // No points earned if suspicious
       remark: transaction.remark,
+      promotionIds: transaction.promotions.map((p) => p.id),
       createdBy: cashier?.utorid || null,
     });
   } catch (err) {
@@ -171,11 +166,7 @@ const adjustmentTransaction = async (req, res, next) => {
     });
     if (!relatedTransaction) throw new Error("Bad Request");
 
-    // Check authorization AFTER validation
-    const manager = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!manager || !["manager", "superuser"].includes(manager.role)) {
-      throw new Error("Forbidden");
-    }
+    const manager = req.me;
     const transaction = await prisma.transaction.create({
       data: {
         userId: customer.id,
@@ -228,12 +219,6 @@ const getTransactions = async (req, res, next) => {
     const limitNum = Number(limit);
     if (isNaN(pageNum) || pageNum < 1) throw new Error("Bad Request");
     if (isNaN(limitNum) || limitNum < 1) throw new Error("Bad Request");
-
-    // Check authorization AFTER validation
-    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!user || !["manager", "superuser"].includes(user.role)) {
-      throw new Error("Forbidden");
-    }
 
     const where = {};
 
@@ -320,12 +305,6 @@ const getTransactionById = async (req, res, next) => {
 
     if (!t) throw new Error("Not Found");
 
-    // Check authorization AFTER validation
-    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!user || !["manager", "superuser"].includes(user.role)) {
-      throw new Error("Forbidden");
-    }
-
     return res.status(200).json({
       id: t.id,
       utorid: t.user.utorid,
@@ -358,12 +337,6 @@ const patchTransactionAsSuspiciousById = async (req, res, next) => {
     });
 
     if (!transaction) throw new Error("Not Found");
-
-    // Check authorization AFTER validation
-    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!user || !["manager", "superuser"].includes(user.role)) {
-      throw new Error("Forbidden");
-    }
 
     if (transaction.suspicious === suspicious) {
       return res.status(200).json({
@@ -418,87 +391,58 @@ const patchRedemptionTransactionStatusById = async (req, res, next) => {
     if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
     const { processed } = req.body ?? {};
-    if (typeof processed !== "boolean") throw new Error("Bad Request");
+    if (processed !== true) throw new Error("Bad Request");
+
+    const cashier = req.me;
+    if (!cashier) throw new Error("Unauthorized");
 
     const transaction = await prisma.transaction.findUnique({
       where: { id },
-      include: { user: true, promotions: { select: { id: true } }, createdBy: { select: { utorid: true } } },
+      include: {
+        user: { select: { utorid: true, points: true, id: true } },
+        promotions: { select: { id: true } },
+        createdBy: { select: { utorid: true } }
+      },
     });
 
     if (!transaction) throw new Error("Not Found");
     if (transaction.type !== "redemption") throw new Error("Bad Request");
 
-    // Check authorization AFTER validation
-    const cashier = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!cashier || !["cashier", "manager", "superuser"].includes(cashier.role)) {
-      throw new Error("Forbidden");
+    // If already processed
+    if (transaction.processedBy !== null) {
+      throw new Error("Bad Request");
     }
 
-    if (processed) {
-      if (transaction.redeemed === transaction.amount) {
-        return res.status(200).json({
-          id: transaction.id,
-          utorid: transaction.user.utorid,
-          type: transaction.type,
-          amount: transaction.amount,
-          redeemed: transaction.redeemed,
-          promotionIds: transaction.promotions.map((p) => p.id),
-          remark: transaction.remark || "",
-          createdBy: transaction.createdBy?.utorid || null,
-        });
-      }
-
-      const updated = await prisma.transaction.update({
-        where: { id },
-        data: { redeemed: transaction.amount },
-        include: { user: true, promotions: { select: { id: true } }, createdBy: { select: { utorid: true } } },
-      });
-
-      return res.status(200).json({
-        id: updated.id,
-        utorid: updated.user.utorid,
-        type: updated.type,
-        amount: updated.amount,
-        redeemed: updated.redeemed,
-        promotionIds: updated.promotions.map((p) => p.id),
-        remark: updated.remark || "",
-        createdBy: updated.createdBy?.utorid || null,
-      });
-    }
-
-    if (!transaction.redeemed || transaction.redeemed === 0) {
-      return res.status(200).json({
-        id: transaction.id,
-        utorid: transaction.user.utorid,
-        type: transaction.type,
-        amount: transaction.amount,
-        redeemed: transaction.redeemed ?? 0,
-        promotionIds: transaction.promotions.map((p) => p.id),
-        remark: transaction.remark || "",
-        createdBy: transaction.createdBy?.utorid || null,
-      });
-    }
-
+    // Deduct points and mark as processed
     const result = await prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: transaction.userId },
-        data: { points: { increment: transaction.amount } },
+        data: { points: { increment: transaction.amount } },  // amount is negative
       });
 
       return tx.transaction.update({
         where: { id },
-        data: { redeemed: 0 },
-        include: { user: true, promotions: { select: { id: true } }, createdBy: { select: { utorid: true } } },
+        data: { processedBy: cashier.id },
+        include: {
+          user: { select: { utorid: true } },
+          promotions: { select: { id: true } },
+          createdBy: { select: { utorid: true } }
+        },
       });
+    });
+
+    // Get the processor info
+    const processor = await prisma.user.findUnique({
+      where: { id: result.processedBy },
+      select: { utorid: true },
     });
 
     return res.status(200).json({
       id: result.id,
       utorid: result.user.utorid,
       type: result.type,
-      amount: result.amount,
-      redeemed: result.redeemed,
-      promotionIds: result.promotions.map((p) => p.id),
+      processedBy: processor?.utorid || null,
+      redeemed: Math.abs(result.amount),
       remark: result.remark || "",
       createdBy: result.createdBy?.utorid || null,
     });

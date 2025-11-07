@@ -6,12 +6,16 @@ const prisma = require("../prismaClient");
 const authenticate = jwt({
   secret: process.env.JWT_SECRET || "secretkey",
   algorithms: ["HS256"],
-});
-
-const authenticateOptional = jwt({
-  secret: process.env.JWT_SECRET || "secretkey",
-  algorithms: ["HS256"],
-  credentialsRequired: false,
+  requestProperty: 'auth',
+  credentialsRequired: true,
+  getToken: function fromHeaderOrQuerystring (req) {
+    if (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Bearer') {
+      return req.headers.authorization.split(' ')[1];
+    } else if (req.query && req.query.token) {
+      return req.query.token;
+    }
+    return null;
+  }
 });
 
 function requires(minRole) {
@@ -28,9 +32,28 @@ function requires(minRole) {
 
       req.me = me;
 
-      if (ranking[me.role] < ranking[minRole]) {
+      // Check if role is valid
+      const userRanking = ranking[me.role];
+      const requiredRanking = ranking[minRole];
+
+      if (userRanking === undefined) {
+        console.error(`[AUTH] Invalid user role: ${me.role} (typeof: ${typeof me.role})`);
+        console.error(`[AUTH] Available roles:`, Object.keys(ranking));
         return res.status(403).json({ error: "Forbidden" });
       }
+
+      if (requiredRanking === undefined) {
+        console.error(`[AUTH] Invalid required role: ${minRole}`);
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      if (userRanking < requiredRanking) {
+        console.log(`[AUTH] User ${me.utorid} (${me.role}:${userRanking}) < required (${minRole}:${requiredRanking}) - FORBIDDEN`);
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      console.log(`[AUTH] User ${me.utorid} (${me.role}:${userRanking}) >= required (${minRole}:${requiredRanking}) - OK`);
+
 
       return next();
     } catch (err) {
@@ -47,4 +70,4 @@ async function attachUser(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, authenticateOptional, requires, attachUser };
+module.exports = { authenticate, requires, attachUser };

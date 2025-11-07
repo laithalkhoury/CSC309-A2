@@ -1,6 +1,6 @@
 const prisma = require("../prismaClient");
 
-const VALID_TYPES = ["automatic", "onetime"];
+const VALID_TYPES = ["automatic", "one-time"];
 
 async function loadViewer(req) {
   if (!req.auth || typeof req.auth.userId !== "number") return null;
@@ -12,9 +12,9 @@ function serializePromotion(promotion) {
     id: promotion.id,
     name: promotion.name,
     description: promotion.description,
-    type: promotion.type,
-    startTime: promotion.startTime.toISOString(),
-    endTime: promotion.endTime.toISOString(),
+    type: promotion.type === "one_time" ? "one-time" : promotion.type,
+    startTime: promotion.startTime,
+    endTime: promotion.endTime,
     rate: promotion.rate,
     points: promotion.points,
     minSpending: promotion.minSpending,
@@ -38,12 +38,6 @@ const postPromotion = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    // Check authorization AFTER validation
-    const viewer = await loadViewer(req);
-    if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-      throw new Error("Forbidden");
-    }
-
     if (typeof name !== "string" || name.length > 120) throw new Error("Bad Request");
     if (typeof description !== "string" || description.length > 1000)
       throw new Error("Bad Request");
@@ -58,10 +52,12 @@ const postPromotion = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
+    const dbType = type === "one-time" ? "one_time" : type;
+
     const data = {
       name,
       description,
-      type,
+      type: dbType,
       startTime: start,
       endTime: end,
     };
@@ -81,7 +77,7 @@ const postPromotion = async (req, res, next) => {
         if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
         data.points = pts;
       }
-    } else if (type === "onetime") {
+    } else if (type === "one-time") {
       const ptsVal = Number(points);
       if (!Number.isInteger(ptsVal) || ptsVal <= 0) {
         throw new Error("Bad Request");
@@ -89,7 +85,7 @@ const postPromotion = async (req, res, next) => {
       data.points = ptsVal;
       if (rate !== undefined) {
         const rateVal = Number(rate);
-        if (rateVal <= 0) throw new Error("Bad Request");
+        if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
         data.rate = rateVal;
       }
     }
@@ -121,28 +117,35 @@ const getPromotions = async (req, res, next) => {
 
     if (type !== undefined) {
       if (!VALID_TYPES.includes(String(type))) throw new Error("Bad Request");
-      filters.push({ type: String(type) });
+      const dbType = String(type) === "one-time" ? "one_time" : String(type);
+      filters.push({ type: dbType });
     }
 
     if (started !== undefined && ended !== undefined) {
       throw new Error("Bad Request");
     }
 
-    if (started !== undefined) {
-      if (started === "true") filters.push({ startTime: { lte: now } });
-      else if (started === "false") filters.push({ startTime: { gt: now } });
-      else throw new Error("Bad Request");
-    }
-
-    if (ended !== undefined) {
-      if (ended === "true") filters.push({ endTime: { lt: now } });
-      else if (ended === "false") filters.push({ endTime: { gte: now } });
-      else throw new Error("Bad Request");
-    }
-
+    // Regular and cashier users can only see active promotions
+    // They cannot use started/ended filters
     if (role === "regular" || role === "cashier") {
+      if (started !== undefined || ended !== undefined) {
+        throw new Error("Bad Request");
+      }
       filters.push({ startTime: { lte: now } });
       filters.push({ endTime: { gte: now } });
+    } else {
+      // Managers and superusers can use started/ended filters
+      if (started !== undefined) {
+        if (started === "true") filters.push({ startTime: { lte: now } });
+        else if (started === "false") filters.push({ startTime: { gt: now } });
+        else throw new Error("Bad Request");
+      }
+
+      if (ended !== undefined) {
+        if (ended === "true") filters.push({ endTime: { lt: now } });
+        else if (ended === "false") filters.push({ endTime: { gte: now } });
+        else throw new Error("Bad Request");
+      }
     }
 
     const where = filters.length ? { AND: filters } : {};
@@ -177,10 +180,7 @@ const getPromotionById = async (req, res, next) => {
     const role = viewer?.role ?? "regular";
 
     if (role === "regular" || role === "cashier") {
-      // Prisma returns Date objects, no need to convert
-      const startTime = promotion.startTime;
-      const endTime = promotion.endTime;
-      if (!(startTime <= now && endTime >= now)) {
+      if (!(promotion.startTime <= now && promotion.endTime >= now)) {
         throw new Error("Not Found");
       }
     }
@@ -212,12 +212,6 @@ const patchPromotionById = async (req, res, next) => {
       minSpending === undefined
     ) {
       throw new Error("Bad Request");
-    }
-
-    // Check authorization AFTER validation
-    const viewer = await loadViewer(req);
-    if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-      throw new Error("Forbidden");
     }
 
     const now = new Date();
@@ -298,12 +292,6 @@ const deletePromotionById = async (req, res, next) => {
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
-
-    // Check authorization AFTER validation
-    const viewer = await loadViewer(req);
-    if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-      throw new Error("Forbidden");
-    }
 
     if (promotion.startTime <= new Date()) {
       throw new Error("Forbidden");

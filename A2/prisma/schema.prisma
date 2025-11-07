@@ -24,7 +24,7 @@ enum TransactionType {
 
 enum PromotionType {
   automatic
-  onetime
+  one_time
 }
 
 model User {
@@ -53,22 +53,23 @@ model User {
 }
 
 model Transaction {
-  id          Int             @id @default(autoincrement())
-  userId      Int
-  user        User            @relation(fields: [userId], references: [id])
-  type        TransactionType
-  amount      Int
-  spent       Float?
-  redeemed    Int?
-  suspicious  Boolean         @default(false)
-  remark      String?
-  relatedId   Int?
-  createdById Int?
-  createdBy   User?           @relation("CreatedTransactions", fields: [createdById], references: [id])
-  createdAt   DateTime        @default(now())
-  eventId     Int?
-  event       Event?          @relation(fields: [eventId], references: [id])
-  promotions  Promotion[]     @relation("PromotionTransactions")
+  id           Int             @id @default(autoincrement())
+  userId       Int
+  user         User            @relation(fields: [userId], references: [id])
+  type         TransactionType
+  amount       Int
+  spent        Float?
+  redeemed     Int?
+  processedBy  Int?
+  suspicious   Boolean         @default(false)
+  remark       String?
+  relatedId    Int?
+  createdById  Int?
+  createdBy    User?           @relation("CreatedTransactions", fields: [createdById], references: [id])
+  createdAt    DateTime        @default(now())
+  eventId      Int?
+  event        Event?          @relation(fields: [eventId], references: [id])
+  promotions   Promotion[]     @relation("PromotionTransactions")
 }
 
 model Event {

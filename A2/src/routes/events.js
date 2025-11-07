@@ -1,3 +1,5 @@
+// routes/events.js
+
 const express = require("express");
 const {
   postEvent,
@@ -13,32 +15,36 @@ const {
   removeCurrentUserFromEvent,
   createRewardTransaction,
 } = require("../controllers/eventController.js");
-const { authenticate } = require("../middleware/authMiddleware");
+const { authenticate, requires, attachUser } = require("../middleware/authMiddleware");
+const { canManageEvent } = require("../middleware/eventAccess");
 
 const router = express.Router();
 
+// Apply authenticate + attachUser for all event routes
+router.use(authenticate, attachUser);
+
 // Managers or superusers can create events
-router.post("/", authenticate, postEvent);
+router.post("/", requires("manager"), postEvent);
 
 // All authenticated users can view events
-router.get("/", authenticate, getEvents);
-router.get("/:eventId", authenticate, getEventById);
+router.get("/", getEvents);
+router.get("/:eventId", getEventById);
 
-// Managers can manage events
-router.patch("/:eventId", authenticate, patchEventById);
-router.delete("/:eventId", authenticate, deleteEventById);
+// Managers / organizers / superusers can manage event
+router.patch("/:eventId", canManageEvent(), patchEventById);
+router.delete("/:eventId", canManageEvent(), deleteEventById);
 
-router.post("/:eventId/organizers", authenticate, postOrganizerToEvent);
-router.delete("/:eventId/organizers/:userId", authenticate, removeOrganizerFromEvent);
+router.post("/:eventId/organizers", canManageEvent(), postOrganizerToEvent);
+router.delete("/:eventId/organizers/:userId", canManageEvent(), removeOrganizerFromEvent);
 
-router.post("/:eventId/guests", authenticate, postGuestToEvent);
-router.delete("/:eventId/guests/:userId", authenticate, deleteGuestFromEvent);
+router.post("/:eventId/guests", canManageEvent(), postGuestToEvent);
+router.delete("/:eventId/guests/:userId", canManageEvent(), deleteGuestFromEvent);
 
 // Regular users RSVP to events
-router.post("/:eventId/guests/me", authenticate, postCurrentUserToEvent);
-router.delete("/:eventId/guests/me", authenticate, removeCurrentUserFromEvent);
+router.post("/:eventId/guests/me", postCurrentUserToEvent);
+router.delete("/:eventId/guests/me", removeCurrentUserFromEvent);
 
 // Award points after events
-router.post("/:eventId/transactions", authenticate, createRewardTransaction);
+router.post("/:eventId/transactions", canManageEvent(), createRewardTransaction);
 
 module.exports = router;
