@@ -7,6 +7,8 @@ const {
     patchTransactionAsSuspiciousById,
     patchRedemptionTransactionStatusById,
     adjustmentTransaction,
+    redemptionTransaction,
+    transferTransaction,
 } = require("../controllers/transactionController.js");
 const { authenticate, requires } = require("../middleware/authMiddleware");
 
@@ -15,19 +17,28 @@ const router = express.Router();
 // Unified transaction handler to handle purchase AND adjustment transactions
 const handleTransaction = async (req, res, next) => {
     try {
-        const { type } = req.body;
+        const { type } = req.body ?? {};
+
         if (type === "purchase") {
             return await postTransaction(req, res, next);
         }
-        else if (type === "adjustment") {
+
+        if (type === "adjustment") {
             if (!req.me || (req.me.role !== "manager" && req.me.role !== "superuser")) {
                 throw new Error("Forbidden");
             }
             return await adjustmentTransaction(req, res, next);
         }
-        else {
-            throw new Error("Bad Request");
+
+        if (type === "redemption") {
+            return await redemptionTransaction(req, res, next);
         }
+
+        if (type === "transfer") {
+            return await transferTransaction(req, res, next);
+        }
+
+        throw new Error("Bad Request");
     } catch (error) {
         next(error);
     }

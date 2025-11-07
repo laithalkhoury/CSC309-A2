@@ -199,6 +199,170 @@ const adjustmentTransaction = async (req, res, next) => {
   }
 };
 
+const redemptionTransaction = async (req, res, next) => {
+  try {
+    const { utorid, type, redeemed, remark = "" } = req.body ?? {};
+
+    if (!utorid || type !== "redemption" || redeemed === undefined) {
+      throw new Error("Bad Request");
+    }
+
+    const utoridRegex = /^[a-zA-Z0-9]{7,8}$/;
+    if (!utoridRegex.test(String(utorid))) throw new Error("Bad Request");
+
+    const redeemedAmount =
+      typeof redeemed === "string" && redeemed.trim() !== ""
+        ? Number(redeemed)
+        : redeemed;
+
+    if (!Number.isInteger(redeemedAmount) || redeemedAmount <= 0) {
+      throw new Error("Bad Request");
+    }
+
+    const normalizedUtorid = String(utorid).toLowerCase();
+    const customer = await prisma.user.findUnique({
+      where: { utorid: normalizedUtorid },
+    });
+    if (!customer) throw new Error("Bad Request");
+
+    if (customer.points < redeemedAmount) {
+      throw new Error("Bad Request");
+    }
+
+    const cashier = req.me;
+
+    const transaction = await prisma.transaction.create({
+      data: {
+        userId: customer.id,
+        type: "redemption",
+        amount: -redeemedAmount,
+        redeemed: redeemedAmount,
+        remark: typeof remark === "string" ? remark : "",
+        createdById: cashier?.id || null,
+      },
+    });
+
+    return res.status(201).json({
+      id: transaction.id,
+      utorid: customer.utorid,
+      type: transaction.type,
+      redeemed: transaction.redeemed,
+      remark: transaction.remark || "",
+      createdBy: cashier?.utorid || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const transferTransaction = async (req, res, next) => {
+  try {
+    const {
+      type,
+      amount,
+      remark = "",
+      fromUtorid,
+      toUtorid,
+      sourceUtorid,
+      targetUtorid,
+      from,
+      to,
+    } = req.body ?? {};
+
+    if (type !== "transfer") throw new Error("Bad Request");
+
+    const utoridRegex = /^[a-zA-Z0-9]{7,8}$/;
+
+    const senderUtorid = fromUtorid ?? sourceUtorid ?? from;
+    const receiverUtorid = toUtorid ?? targetUtorid ?? to;
+
+    if (!senderUtorid || !receiverUtorid) throw new Error("Bad Request");
+    if (!utoridRegex.test(String(senderUtorid))) throw new Error("Bad Request");
+    if (!utoridRegex.test(String(receiverUtorid))) throw new Error("Bad Request");
+
+    const normalizedSender = String(senderUtorid).toLowerCase();
+    const normalizedReceiver = String(receiverUtorid).toLowerCase();
+
+    if (normalizedSender === normalizedReceiver) {
+      throw new Error("Bad Request");
+    }
+
+    const transferAmount =
+      typeof amount === "string" && amount.trim() !== "" ? Number(amount) : amount;
+
+    if (!Number.isInteger(transferAmount) || transferAmount <= 0) {
+      throw new Error("Bad Request");
+    }
+
+    const [sender, receiver] = await Promise.all([
+      prisma.user.findUnique({ where: { utorid: normalizedSender } }),
+      prisma.user.findUnique({ where: { utorid: normalizedReceiver } }),
+    ]);
+
+    if (!sender || !receiver) throw new Error("Bad Request");
+
+    if (sender.points < transferAmount) {
+      throw new Error("Bad Request");
+    }
+
+    const cashier = req.me;
+    const remarkText = typeof remark === "string" ? remark : "";
+
+    const result = await prisma.$transaction(async (tx) => {
+      const debit = await tx.transaction.create({
+        data: {
+          userId: sender.id,
+          type: "transfer",
+          amount: -transferAmount,
+          remark: remarkText,
+          createdById: cashier?.id || null,
+        },
+      });
+
+      const credit = await tx.transaction.create({
+        data: {
+          userId: receiver.id,
+          type: "transfer",
+          amount: transferAmount,
+          remark: remarkText,
+          relatedId: debit.id,
+          createdById: cashier?.id || null,
+        },
+      });
+
+      await tx.transaction.update({
+        where: { id: debit.id },
+        data: { relatedId: credit.id },
+      });
+
+      await tx.user.update({
+        where: { id: sender.id },
+        data: { points: { decrement: transferAmount } },
+      });
+
+      await tx.user.update({
+        where: { id: receiver.id },
+        data: { points: { increment: transferAmount } },
+      });
+
+      return { debitId: debit.id, creditId: credit.id };
+    });
+
+    return res.status(201).json({
+      id: result.debitId,
+      type: "transfer",
+      from: sender.utorid,
+      to: receiver.utorid,
+      amount: transferAmount,
+      remark: remarkText,
+      relatedId: result.creditId,
+      createdBy: cashier?.utorid || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // GET /transactions
 const getTransactions = async (req, res, next) => {
   try {
@@ -465,8 +629,10 @@ const patchRedemptionTransactionStatusById = async (req, res, next) => {
 module.exports = {
   postTransaction,
   adjustmentTransaction,
+  redemptionTransaction,
+  transferTransaction,
   getTransactions,
   getTransactionById,
   patchTransactionAsSuspiciousById,
-  patchRedemptionTransactionStatusById
+  patchRedemptionTransactionStatusById,
 };

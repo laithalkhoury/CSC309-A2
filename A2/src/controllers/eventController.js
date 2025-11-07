@@ -40,8 +40,17 @@ function serializeEvent(event) {
 }
 
 async function loadViewer(req) {
-    if (!req.auth || typeof req.auth.userId !== "number") return null;
-    const viewer = await prisma.user.findUnique({ where: { id: req.auth.userId } });
+    const rawId =
+        (req.auth && Object.prototype.hasOwnProperty.call(req.auth, "userId")
+            ? req.auth.userId
+            : undefined) ?? req.me?.id;
+
+    const userId = Number(rawId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+        return null;
+    }
+
+    const viewer = await prisma.user.findUnique({ where: { id: userId } });
     return viewer;
 }
 
@@ -400,14 +409,15 @@ const patchEventById = async (req, res, next) => {
         if (published !== undefined) {
             let normalizedPublished = published;
             if (typeof published === "string") {
-                if (published.trim().toLowerCase() === "true" || published.trim() === "1") {
+                const trimmed = published.trim();
+                if (trimmed.toLowerCase() === "true" || trimmed === "1") {
                     normalizedPublished = true;
-                } else if (
-                    published.trim().toLowerCase() === "false" ||
-                    published.trim() === "0"
-                ) {
+                } else if (trimmed.toLowerCase() === "false" || trimmed === "0") {
                     normalizedPublished = false;
                 }
+            } else if (typeof published === "number") {
+                if (published === 1) normalizedPublished = true;
+                if (published === 0) normalizedPublished = false;
             }
 
             if (typeof normalizedPublished !== "boolean") throw new Error("Bad Request");

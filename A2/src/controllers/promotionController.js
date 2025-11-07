@@ -27,15 +27,27 @@ function coerceNumber(value) {
 }
 
 function isNullLike(value) {
-  return (
-    value === null ||
-    (typeof value === "string" && value.trim().toLowerCase() === "null")
-  );
+  if (value === null) return true;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    if (trimmed.toLowerCase() === "null") return true;
+  }
+  return false;
 }
 
 async function loadViewer(req) {
-  if (!req.auth || typeof req.auth.userId !== "number") return null;
-  return prisma.user.findUnique({ where: { id: req.auth.userId } });
+  const rawId =
+    (req.auth && Object.prototype.hasOwnProperty.call(req.auth, "userId")
+      ? req.auth.userId
+      : undefined) ?? req.me?.id;
+
+  const userId = Number(rawId);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return null;
+  }
+
+  return prisma.user.findUnique({ where: { id: userId } });
 }
 
 function serializePromotion(promotion) {
