@@ -1,38 +1,52 @@
-/* Authentication Middleware Logic, to be called in every route endpoint */
+/* Authentication Middleware Logic */
 
-const {expressjwt: jwt} = require('express-jwt');
-const prisma = require('../prismaClient');
+const { expressjwt: jwt } = require("express-jwt");
+const prisma = require("../prismaClient");
 
+const baseAuthenticate = jwt({
+  secret: process.env.JWT_SECRET || "secretkey",
+  algorithms: ["HS256"],
+  requestProperty: "auth",
+});
 
-const authenticate = jwt({
-    secret: process.env.JWT_SECRET || "secretkey",
-    algorithms: ['HS256']
-})
+const attachUser = async (req, res, next) => {
+  try {
+    if (!req.auth || !req.auth.userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.auth.userId } });
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    req.me = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+const authenticate = [baseAuthenticate, attachUser];
 
 function requires(minRole) {
-    const ranking = { regular: 1, cashier: 2, manager: 3, superuser: 4};
+  const ranking = { regular: 1, cashier: 2, manager: 3, superuser: 4 };
 
-    return async (req, res, next) => {
-        try {
-            if (!req.auth || !req.auth.userId) {
-                return res.status(401).json({ error: "Unauthorized"});
-            }
-            
-            const me = await prisma.user.findUnique({where: {id: req.auth.userId }})
-            if (!me) {
-                return res.status(401).json({error: "Unauthorized"});
-            }
+  return (req, res, next) => {
+    try {
+      if (!req.me) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
 
-            req.me = me; // adds user to request object
-            if (ranking[me.role] < ranking[minRole]) {
-                return res.status(403).json({error: "Forbidden"}); // can't complete request (not allowed to do so)
-            }
-            return next();
-        }
-        catch(err) {
-            return next(err);
-        }
-    };
+      if (ranking[req.me.role] < ranking[minRole]) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 }
 
-module.exports = { authenticate, requires};
+module.exports = { authenticate, requires };

@@ -1,40 +1,52 @@
 const express = require("express");
 
 const {
-    postTransaction,
-    getTransactions,
-    getTransactionById,
-    patchTransactionAsSuspiciousById,
-    patchRedemptionTransactionStatusById,
-    adjustmentTransaction,
+  postTransaction,
+  getTransactions,
+  getTransactionById,
+  patchTransactionAsSuspiciousById,
+  patchRedemptionTransactionStatusById,
+  adjustmentTransaction,
 } = require("../controllers/transactionController.js");
+const { authenticate, requires } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-// Unified transaction handler to handle purchase AND adjustment transactions
 const handleTransaction = async (req, res, next) => {
-    try {
-        const { type } = req.body;
-        if (type === "purchase") {
-            return await postTransaction(req, res);
-        }
-        else if (type === "adjustment") {
-            return await adjustmentTransaction(req, res);
-        }
-        else {
-            throw new Error("Bad Request");
-        }
-    } catch (error) {
-        next(error);
+  try {
+    const { type } = req.body;
+    if (type === "purchase") {
+      return requires("cashier")(req, res, () => postTransaction(req, res, next));
     }
-}
+    if (type === "adjustment") {
+      return requires("manager")(req, res, () => adjustmentTransaction(req, res, next));
+    }
 
-router.post("/", handleTransaction);
-router.get("/", getTransactions);
-router.get("/:transactionId", getTransactionById);
-router.patch("/:transactionId/suspicious", patchTransactionAsSuspiciousById);
-router.patch("/:transactionId/processed", patchRedemptionTransactionStatusById);
+    throw new Error("Bad Request");
+  } catch (error) {
+    next(error);
+  }
+};
 
-
+router.post("/", authenticate, handleTransaction);
+router.get("/", authenticate, requires("manager"), getTransactions);
+router.get(
+  "/:transactionId",
+  authenticate,
+  requires("manager"),
+  getTransactionById
+);
+router.patch(
+  "/:transactionId/suspicious",
+  authenticate,
+  requires("manager"),
+  patchTransactionAsSuspiciousById
+);
+router.patch(
+  "/:transactionId/processed",
+  authenticate,
+  requires("cashier"),
+  patchRedemptionTransactionStatusById
+);
 
 module.exports = router;
