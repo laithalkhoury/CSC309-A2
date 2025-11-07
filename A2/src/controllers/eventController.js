@@ -141,8 +141,8 @@ const getEvents = async (req, res, next) => {
         const role = viewer?.role ?? "regular";
 
         const { page = 1, limit = 10, published } = req.query ?? {};
-        const pageNum = parseInt(page) || 1;
-        const limitNum = parseInt(limit) || 10;
+        const pageNum = parseInt(page, 10) || 1;
+        const limitNum = parseInt(limit, 10) || 10;
 
         if (!Number.isInteger(pageNum) || pageNum < 1) throw new Error("Bad Request");
         if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100)
@@ -153,9 +153,17 @@ const getEvents = async (req, res, next) => {
         let publishedFilter = null;
 
         if (published !== undefined) {
-            if (published === "true") publishedFilter = true;
-            else if (published === "false") publishedFilter = false;
-            else throw new Error("Bad Request");
+            if (published === "true" || published === "1" || published === 1) {
+                publishedFilter = true;
+            } else if (
+                published === "false" ||
+                published === "0" ||
+                published === 0
+            ) {
+                publishedFilter = false;
+            } else {
+                throw new Error("Bad Request");
+            }
         }
 
         if (role === "manager" || role === "superuser") {
@@ -351,7 +359,7 @@ const patchEventById = async (req, res, next) => {
         }
 
         if (capacity !== undefined) {
-            if (capacity === null) {
+            if (capacity === null || (typeof capacity === "string" && capacity.trim().toLowerCase() === "null")) {
                 data.capacity = null;
             } else {
                 const parsedCapacity =
@@ -390,8 +398,20 @@ const patchEventById = async (req, res, next) => {
         }
 
         if (published !== undefined) {
-            if (typeof published !== "boolean") throw new Error("Bad Request");
-            data.published = published;
+            let normalizedPublished = published;
+            if (typeof published === "string") {
+                if (published.trim().toLowerCase() === "true" || published.trim() === "1") {
+                    normalizedPublished = true;
+                } else if (
+                    published.trim().toLowerCase() === "false" ||
+                    published.trim() === "0"
+                ) {
+                    normalizedPublished = false;
+                }
+            }
+
+            if (typeof normalizedPublished !== "boolean") throw new Error("Bad Request");
+            data.published = normalizedPublished;
         }
 
         const updated = await prisma.event.update({
@@ -758,7 +778,19 @@ const createRewardTransaction = async (req, res, next) => {
 
         const { utorids = [], amount, remark = "" } = req.body ?? {};
 
-        if (!Array.isArray(utorids) || !Number.isInteger(amount) || amount <= 0) {
+        const utoridList = Array.isArray(utorids) ? utorids : [utorids];
+
+        const normalizedAmount =
+            typeof amount === "string" && amount.trim() !== ""
+                ? Number(amount)
+                : amount;
+
+        if (
+            !Array.isArray(utoridList) ||
+            utoridList.length === 0 ||
+            !Number.isInteger(normalizedAmount) ||
+            normalizedAmount <= 0
+        ) {
             throw new Error("Bad Request");
         }
 
@@ -783,7 +815,11 @@ const createRewardTransaction = async (req, res, next) => {
             throw new Error("Forbidden");
         }
 
-        const lowerUtorids = utorids.map((u) => String(u).toLowerCase());
+        const lowerUtorids = utoridList.map((u) => String(u ?? "").trim().toLowerCase());
+
+        if (lowerUtorids.some((utorid) => !utorid)) {
+            throw new Error("Bad Request");
+        }
 
         const guestsByUtorid = new Map(
             event.guests.map((guest) => [guest.utorid.toLowerCase(), guest])
@@ -799,7 +835,7 @@ const createRewardTransaction = async (req, res, next) => {
             return guest;
         });
 
-        if (event.pointsRemain < amount * guestsToReward.length) {
+        if (event.pointsRemain < normalizedAmount * guestsToReward.length) {
             throw new Error("Bad Request");
         }
 
@@ -810,7 +846,7 @@ const createRewardTransaction = async (req, res, next) => {
                     data: {
                         userId: guest.id,
                         type: "event",
-                        amount,
+                        amount: normalizedAmount,
                         remark: typeof remark === "string" ? remark : "",
                         eventId,
                     },
@@ -818,7 +854,7 @@ const createRewardTransaction = async (req, res, next) => {
 
                 await tx.user.update({
                     where: { id: guest.id },
-                    data: { points: { increment: amount } },
+                    data: { points: { increment: normalizedAmount } },
                 });
 
                 created.push(transaction);
@@ -827,8 +863,8 @@ const createRewardTransaction = async (req, res, next) => {
             await tx.event.update({
                 where: { id: eventId },
                 data: {
-                    pointsAwarded: { increment: amount * guestsToReward.length },
-                    pointsRemain: { decrement: amount * guestsToReward.length },
+                    pointsAwarded: { increment: normalizedAmount * guestsToReward.length },
+                    pointsRemain: { decrement: normalizedAmount * guestsToReward.length },
                 },
             });
 
