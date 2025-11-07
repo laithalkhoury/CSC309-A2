@@ -6,10 +6,10 @@ function normalizeType(value) {
   const lowered = value.trim().toLowerCase();
   if (!lowered) return null;
 
-  if (lowered === "automatic") return "automatic";
+  if (lowered === "automatic" || lowered === "auto") return "automatic";
 
   const normalized = lowered.replace(/[-\s]+/g, "_");
-  if (normalized === "one_time") return "one_time";
+  if (normalized === "one_time" || normalized === "onetime") return "one_time";
 
   return null;
 }
@@ -24,6 +24,13 @@ function coerceNumber(value) {
     return Number(value);
   }
   return NaN;
+}
+
+function isNullLike(value) {
+  return (
+    value === null ||
+    (typeof value === "string" && value.trim().toLowerCase() === "null")
+  );
 }
 
 async function loadViewer(req) {
@@ -88,7 +95,7 @@ const postPromotion = async (req, res, next) => {
     };
 
     if (minSpending !== undefined) {
-      if (minSpending === null) {
+      if (isNullLike(minSpending)) {
         data.minSpending = null;
       } else {
         const spending = coerceNumber(minSpending);
@@ -102,7 +109,7 @@ const postPromotion = async (req, res, next) => {
       if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
       data.rate = rateVal;
       if (points !== undefined) {
-        if (points === null) {
+        if (isNullLike(points)) {
           data.points = null;
         } else {
           const pts = coerceNumber(points);
@@ -117,7 +124,7 @@ const postPromotion = async (req, res, next) => {
       }
       data.points = ptsVal;
       if (rate !== undefined) {
-        if (rate === null) {
+        if (isNullLike(rate)) {
           data.rate = null;
         } else {
           const rateVal = coerceNumber(rate);
@@ -173,15 +180,23 @@ const getPromotions = async (req, res, next) => {
     } else {
       // Managers and superusers can use started/ended filters
       if (started !== undefined) {
-        if (started === "true") filters.push({ startTime: { lte: now } });
-        else if (started === "false") filters.push({ startTime: { gt: now } });
-        else throw new Error("Bad Request");
+        if (started === "true" || started === "1" || started === 1) {
+          filters.push({ startTime: { lte: now } });
+        } else if (started === "false" || started === "0" || started === 0) {
+          filters.push({ startTime: { gt: now } });
+        } else {
+          throw new Error("Bad Request");
+        }
       }
 
       if (ended !== undefined) {
-        if (ended === "true") filters.push({ endTime: { lt: now } });
-        else if (ended === "false") filters.push({ endTime: { gte: now } });
-        else throw new Error("Bad Request");
+        if (ended === "true" || ended === "1" || ended === 1) {
+          filters.push({ endTime: { lt: now } });
+        } else if (ended === "false" || ended === "0" || ended === 0) {
+          filters.push({ endTime: { gte: now } });
+        } else {
+          throw new Error("Bad Request");
+        }
       }
     }
 
@@ -206,7 +221,7 @@ const getPromotions = async (req, res, next) => {
 const getPromotionById = async (req, res, next) => {
   try {
     const id = Number(req.params.promotionId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Not Found");
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
@@ -231,7 +246,7 @@ const getPromotionById = async (req, res, next) => {
 const patchPromotionById = async (req, res, next) => {
   try {
     const id = Number(req.params.promotionId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Not Found");
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
@@ -255,9 +270,6 @@ const patchPromotionById = async (req, res, next) => {
 
     if (promotion.startTime <= now) {
       if (startTime !== undefined) throw new Error("Bad Request");
-      if (rate !== undefined || points !== undefined || minSpending !== undefined) {
-        throw new Error("Bad Request");
-      }
     }
 
     const data = {};
@@ -293,7 +305,7 @@ const patchPromotionById = async (req, res, next) => {
     }
 
     if (rate !== undefined) {
-      if (rate === null) {
+      if (isNullLike(rate)) {
         data.rate = null;
       } else {
         const rateVal = coerceNumber(rate);
@@ -303,7 +315,7 @@ const patchPromotionById = async (req, res, next) => {
     }
 
     if (points !== undefined) {
-      if (points === null) {
+      if (isNullLike(points)) {
         data.points = null;
       } else {
         const pts = coerceNumber(points);
@@ -313,7 +325,7 @@ const patchPromotionById = async (req, res, next) => {
     }
 
     if (minSpending !== undefined) {
-      if (minSpending === null) {
+      if (isNullLike(minSpending)) {
         data.minSpending = null;
       } else {
         const spend = coerceNumber(minSpending);
@@ -333,7 +345,7 @@ const patchPromotionById = async (req, res, next) => {
 const deletePromotionById = async (req, res, next) => {
   try {
     const id = Number(req.params.promotionId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Not Found");
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
@@ -344,7 +356,7 @@ const deletePromotionById = async (req, res, next) => {
 
     await prisma.promotion.delete({ where: { id } });
 
-    return res.status(200).json({ id });
+    return res.status(204).send();
   } catch (err) {
     next(err);
   }
