@@ -696,13 +696,13 @@ const postCurrentUserToEvent = async (req, res, next) => {
 
         if (!event) throw new Error("Not Found");
 
-        if (!event.published) return res.status(403).json({ error: "Forbidden" });
-
         if (event.endTime <= new Date()) {
             const error = new Error("Gone");
             error.statusCode = 410;
             throw error;
         }
+
+        if (!event.published) return res.status(403).json({ error: "Forbidden" });
 
         if (event.organizers.some((o) => o.id === viewer.id)) {
             throw new Error("Bad Request");
@@ -786,9 +786,28 @@ const createRewardTransaction = async (req, res, next) => {
         const eventId = Number(req.params.eventId);
         if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
 
-        const { utorids = [], amount, remark = "" } = req.body ?? {};
+        const {
+            utorids,
+            utorid,
+            userIds,
+            userId,
+            amount,
+            remark = "",
+        } = req.body ?? {};
 
-        const utoridList = Array.isArray(utorids) ? utorids : [utorids];
+        const rawIdentifiers = (() => {
+            if (utorids !== undefined) return utorids;
+            if (userIds !== undefined) return userIds;
+            if (utorid !== undefined) return [utorid];
+            if (userId !== undefined) return [userId];
+            return [];
+        })();
+
+        const utoridList = Array.isArray(rawIdentifiers)
+            ? rawIdentifiers
+            : rawIdentifiers === undefined || rawIdentifiers === null || rawIdentifiers === ""
+              ? []
+              : [rawIdentifiers];
 
         const normalizedAmount =
             typeof amount === "string" && amount.trim() !== ""
@@ -797,7 +816,6 @@ const createRewardTransaction = async (req, res, next) => {
 
         if (
             !Array.isArray(utoridList) ||
-            utoridList.length === 0 ||
             !Number.isInteger(normalizedAmount) ||
             normalizedAmount <= 0
         ) {
@@ -814,10 +832,6 @@ const createRewardTransaction = async (req, res, next) => {
 
         if (!event) throw new Error("Not Found");
 
-        if (event.endTime > new Date()) {
-            throw new Error("Bad Request");
-        }
-
         const requester = req.me || (await loadViewer(req));
 
         const isOrganizer = requester && event.organizers.some((o) => o.id === requester.id);
@@ -827,22 +841,45 @@ const createRewardTransaction = async (req, res, next) => {
 
         const lowerUtorids = utoridList.map((u) => String(u ?? "").trim().toLowerCase());
 
-        if (lowerUtorids.some((utorid) => !utorid)) {
-            throw new Error("Bad Request");
-        }
-
         const guestsByUtorid = new Map(
             event.guests.map((guest) => [guest.utorid.toLowerCase(), guest])
         );
+        const guestsById = new Map(event.guests.map((guest) => [guest.id, guest]));
 
-        const guestsToReward = lowerUtorids.map((utorid) => {
-            const guest = guestsByUtorid.get(utorid);
-            if (!guest) {
-                const error = new Error("Bad Request");
-                error.details = "missing guest";
-                throw error;
+        let guestsToReward;
+
+        if (lowerUtorids.length === 0) {
+            guestsToReward = event.guests;
+        } else {
+            if (lowerUtorids.some((utorid) => !utorid)) {
+                throw new Error("Bad Request");
             }
-            return guest;
+
+            guestsToReward = lowerUtorids.map((value) => {
+                const numericId = Number.isNaN(Number(value)) ? null : Number(value);
+                const guest =
+                    guestsByUtorid.get(value) ||
+                    (Number.isInteger(numericId) ? guestsById.get(numericId) : undefined);
+                if (!guest) {
+                    const error = new Error("Bad Request");
+                    error.details = "missing guest";
+                    throw error;
+                }
+                return guest;
+            });
+        }
+
+        if (!guestsToReward.length) {
+            throw new Error("Bad Request");
+        }
+
+        const seenGuestIds = new Set();
+        guestsToReward = guestsToReward.filter((guest) => {
+            if (seenGuestIds.has(guest.id)) {
+                return false;
+            }
+            seenGuestIds.add(guest.id);
+            return true;
         });
 
         if (event.pointsRemain < normalizedAmount * guestsToReward.length) {

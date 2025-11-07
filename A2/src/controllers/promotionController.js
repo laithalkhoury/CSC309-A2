@@ -117,9 +117,19 @@ const postPromotion = async (req, res, next) => {
     }
 
     if (normalizedType === "automatic") {
-      const rateVal = coerceNumber(rate);
-      if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
-      data.rate = rateVal;
+      let hasBonusComponent = false;
+
+      if (rate !== undefined) {
+        if (isNullLike(rate)) {
+          data.rate = null;
+        } else {
+          const rateVal = coerceNumber(rate);
+          if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
+          data.rate = rateVal;
+          hasBonusComponent = true;
+        }
+      }
+
       if (points !== undefined) {
         if (isNullLike(points)) {
           data.points = null;
@@ -127,7 +137,12 @@ const postPromotion = async (req, res, next) => {
           const pts = coerceNumber(points);
           if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
           data.points = pts;
+          hasBonusComponent = true;
         }
+      }
+
+      if (!hasBonusComponent) {
+        throw new Error("Bad Request");
       }
     } else if (normalizedType === "one_time") {
       const ptsVal = coerceNumber(points);
@@ -343,6 +358,20 @@ const patchPromotionById = async (req, res, next) => {
         const spend = coerceNumber(minSpending);
         if (!Number.isFinite(spend) || spend < 0) throw new Error("Bad Request");
         data.minSpending = spend;
+      }
+    }
+
+    const finalRate = data.rate !== undefined ? data.rate : promotion.rate;
+    const finalPoints = data.points !== undefined ? data.points : promotion.points;
+
+    if (promotion.type === "automatic" && finalRate == null && finalPoints == null) {
+      throw new Error("Bad Request");
+    }
+
+    if (promotion.type === "one_time") {
+      const effectivePoints = data.points !== undefined ? data.points : promotion.points;
+      if (!Number.isInteger(effectivePoints) || effectivePoints <= 0) {
+        throw new Error("Bad Request");
       }
     }
 
