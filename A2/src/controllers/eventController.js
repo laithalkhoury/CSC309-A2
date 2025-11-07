@@ -251,7 +251,7 @@ const patchEventById = async (req, res, next) => {
         const id = Number(req.params.eventId);
         if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
-        const {
+        let {
             name,
             description,
             location,
@@ -261,6 +261,33 @@ const patchEventById = async (req, res, next) => {
             points,
             published,
         } = req.body ?? {};
+
+        const normalizeBlank = (value) => {
+            if (value === undefined) return undefined;
+            if (value === null) return null;
+            if (typeof value === "string") {
+                const trimmed = value.trim();
+                if (!trimmed) return null;
+                return trimmed;
+            }
+            return value;
+        };
+
+        const normalizeOptional = (value) => {
+            if (value === undefined) return undefined;
+            if (value === null) return undefined;
+            if (typeof value === "string") {
+                const trimmed = value.trim();
+                if (!trimmed) return undefined;
+                if (trimmed.toLowerCase() === "null") return undefined;
+                return trimmed;
+            }
+            return value;
+        };
+
+        capacity = normalizeBlank(capacity);
+        points = normalizeOptional(points);
+        published = normalizeOptional(published);
 
         if (
             name === undefined &&
@@ -346,7 +373,7 @@ const patchEventById = async (req, res, next) => {
         }
 
         if (capacity !== undefined) {
-            if (capacity === null || (typeof capacity === "string" && capacity.trim().toLowerCase() === "null")) {
+            if (capacity === null || (typeof capacity === "string" && capacity.toLowerCase() === "null")) {
                 data.capacity = null;
             } else {
                 const parsedCapacity =
@@ -848,7 +875,7 @@ const createRewardTransaction = async (req, res, next) => {
         }
 
         if (!guestsToReward.length) {
-            throw new Error("Bad Request");
+            return res.status(200).json({ count: 0, results: [] });
         }
 
         const seenGuestIds = new Set();
