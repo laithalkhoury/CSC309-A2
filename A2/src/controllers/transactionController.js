@@ -164,7 +164,7 @@ const adjustmentTransaction = async (req, res, next) => {
     const relatedTransaction = await prisma.transaction.findUnique({
       where: { id: relId },
     });
-    if (!relatedTransaction) throw new Error("Bad Request");
+    if (!relatedTransaction) throw new Error("Not Found");
 
     const manager = req.me;
     const transaction = await prisma.transaction.create({
@@ -272,19 +272,24 @@ const getTransactions = async (req, res, next) => {
       take: limitNum,
     });
 
-    const results = transactions.map((t) => ({
-      id: t.id,
-      utorid: t.user.utorid,
-      amount: t.amount,
-      type: t.type,
-      spent: t.spent,
-      promotionIds: t.promotions.map((p) => p.id),
-      suspicious: t.suspicious,
-      remark: t.remark || "",
-      createdBy: t.createdBy?.utorid || null,
-      ...(t.relatedId && { relatedId: t.relatedId }),
-      ...(t.redeemed !== null && { redeemed: t.redeemed }),
-    }));
+    const results = transactions.map((t) => {
+      const record = {
+        id: t.id,
+        utorid: t.user.utorid,
+        amount: t.amount,
+        type: t.type,
+        spent: t.spent,
+        promotionIds: t.promotions.map((p) => p.id),
+        suspicious: t.suspicious,
+        remark: t.remark || "",
+        createdBy: t.createdBy?.utorid || null,
+      };
+
+      if (t.relatedId !== null) record.relatedId = t.relatedId;
+      if (t.redeemed !== null) record.redeemed = t.redeemed;
+
+      return record;
+    });
 
     return res.status(200).json({ count, results });
   } catch (err) {
@@ -305,7 +310,7 @@ const getTransactionById = async (req, res, next) => {
 
     if (!t) throw new Error("Not Found");
 
-    return res.status(200).json({
+    const response = {
       id: t.id,
       utorid: t.user.utorid,
       type: t.type,
@@ -315,7 +320,13 @@ const getTransactionById = async (req, res, next) => {
       suspicious: t.suspicious,
       remark: t.remark,
       createdBy: t.createdBy?.utorid || null,
-    });
+    };
+
+    if (t.relatedId !== null) {
+      response.relatedId = t.relatedId;
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     next(err);
   }

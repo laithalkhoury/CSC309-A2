@@ -1,6 +1,18 @@
 const prisma = require("../prismaClient");
 
-const VALID_TYPES = ["automatic", "one-time"];
+const VALID_TYPES = new Set(["automatic", "one-time", "one_time"]);
+
+function normalizeType(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!VALID_TYPES.has(trimmed)) return null;
+  if (trimmed === "one-time" || trimmed === "one_time") return "one_time";
+  return trimmed;
+}
+
+function toResponseType(dbValue) {
+  return dbValue === "one_time" ? "one_time" : dbValue;
+}
 
 async function loadViewer(req) {
   if (!req.auth || typeof req.auth.userId !== "number") return null;
@@ -12,7 +24,7 @@ function serializePromotion(promotion) {
     id: promotion.id,
     name: promotion.name,
     description: promotion.description,
-    type: promotion.type === "one_time" ? "one-time" : promotion.type,
+    type: toResponseType(promotion.type),
     startTime: promotion.startTime,
     endTime: promotion.endTime,
     rate: promotion.rate,
@@ -42,7 +54,8 @@ const postPromotion = async (req, res, next) => {
     if (typeof description !== "string" || description.length > 1000)
       throw new Error("Bad Request");
 
-    if (!VALID_TYPES.includes(type)) {
+    const normalizedType = normalizeType(type);
+    if (!normalizedType) {
       throw new Error("Bad Request");
     }
 
@@ -52,7 +65,7 @@ const postPromotion = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const dbType = type === "one-time" ? "one_time" : type;
+    const dbType = normalizedType;
 
     const data = {
       name,
@@ -68,7 +81,7 @@ const postPromotion = async (req, res, next) => {
       data.minSpending = spending;
     }
 
-    if (type === "automatic") {
+    if (normalizedType === "automatic") {
       const rateVal = Number(rate);
       if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
       data.rate = rateVal;
@@ -77,7 +90,7 @@ const postPromotion = async (req, res, next) => {
         if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
         data.points = pts;
       }
-    } else if (type === "one-time") {
+    } else if (normalizedType === "one_time") {
       const ptsVal = Number(points);
       if (!Number.isInteger(ptsVal) || ptsVal <= 0) {
         throw new Error("Bad Request");
@@ -116,9 +129,9 @@ const getPromotions = async (req, res, next) => {
     const filters = [];
 
     if (type !== undefined) {
-      if (!VALID_TYPES.includes(String(type))) throw new Error("Bad Request");
-      const dbType = String(type) === "one-time" ? "one_time" : String(type);
-      filters.push({ type: dbType });
+      const normalizedType = normalizeType(String(type));
+      if (!normalizedType) throw new Error("Bad Request");
+      filters.push({ type: normalizedType });
     }
 
     if (started !== undefined && ended !== undefined) {
