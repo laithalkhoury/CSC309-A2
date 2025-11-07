@@ -325,36 +325,48 @@ const patchEventById = async (req, res, next) => {
             data.endTime = end;
         }
 
-        if (data.startTime && data.endTime && data.endTime <= data.startTime) {
+        const finalStart = data.startTime ?? existing.startTime;
+        const finalEnd = data.endTime ?? existing.endTime;
+        if (finalEnd <= finalStart) {
             throw new Error("Bad Request");
         }
 
         if (capacity !== undefined) {
             if (capacity === null) {
                 data.capacity = null;
-            } else if (!Number.isInteger(capacity) || capacity <= 0) {
-                throw new Error("Bad Request");
-            } else if (existing.guests.length > capacity) {
-                throw new Error("Bad Request");
             } else {
-                data.capacity = capacity;
+                const capacityValue = Number(capacity);
+                if (!Number.isInteger(capacityValue) || capacityValue <= 0) {
+                    throw new Error("Bad Request");
+                }
+                if (existing.guests.length > capacityValue) {
+                    throw new Error("Bad Request");
+                }
+                data.capacity = capacityValue;
             }
         }
 
         if (points !== undefined) {
-            if (!Number.isInteger(points) || points < existing.pointsAwarded) {
+            const pointsValue = Number(points);
+            if (!Number.isInteger(pointsValue) || pointsValue < existing.pointsAwarded) {
                 throw new Error("Bad Request");
             }
-            data.points = points;
-            data.pointsRemain = points - existing.pointsAwarded;
+            data.points = pointsValue;
+            data.pointsRemain = pointsValue - existing.pointsAwarded;
         }
 
         if (published !== undefined) {
-            if (typeof published !== "boolean") throw new Error("Bad Request");
-            if (published && existing.organizers.length === 0) {
+            let publishedValue = published;
+            if (typeof publishedValue === "string") {
+                if (publishedValue === "true") publishedValue = true;
+                else if (publishedValue === "false") publishedValue = false;
+                else throw new Error("Bad Request");
+            }
+            if (typeof publishedValue !== "boolean") throw new Error("Bad Request");
+            if (publishedValue && existing.organizers.length === 0) {
                 throw new Error("Bad Request");
             }
-            data.published = published;
+            data.published = publishedValue;
         }
 
         const updated = await prisma.event.update({
@@ -721,7 +733,9 @@ const createRewardTransaction = async (req, res, next) => {
 
         const { utorids = [], amount, remark = "" } = req.body ?? {};
 
-        if (!Array.isArray(utorids) || !Number.isInteger(amount) || amount <= 0) {
+        const amountValue = Number(amount);
+
+        if (!Array.isArray(utorids) || !Number.isInteger(amountValue) || amountValue <= 0) {
             throw new Error("Bad Request");
         }
 
@@ -762,7 +776,7 @@ const createRewardTransaction = async (req, res, next) => {
             return guest;
         });
 
-        if (event.pointsRemain < amount * guestsToReward.length) {
+        if (event.pointsRemain < amountValue * guestsToReward.length) {
             throw new Error("Bad Request");
         }
 
@@ -773,7 +787,7 @@ const createRewardTransaction = async (req, res, next) => {
                     data: {
                         userId: guest.id,
                         type: "event",
-                        amount,
+                        amount: amountValue,
                         remark: typeof remark === "string" ? remark : "",
                         eventId,
                     },
@@ -781,7 +795,7 @@ const createRewardTransaction = async (req, res, next) => {
 
                 await tx.user.update({
                     where: { id: guest.id },
-                    data: { points: { increment: amount } },
+                    data: { points: { increment: amountValue } },
                 });
 
                 created.push(transaction);
@@ -790,8 +804,8 @@ const createRewardTransaction = async (req, res, next) => {
             await tx.event.update({
                 where: { id: eventId },
                 data: {
-                    pointsAwarded: { increment: amount * guestsToReward.length },
-                    pointsRemain: { decrement: amount * guestsToReward.length },
+                    pointsAwarded: { increment: amountValue * guestsToReward.length },
+                    pointsRemain: { decrement: amountValue * guestsToReward.length },
                 },
             });
 
