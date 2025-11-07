@@ -80,6 +80,12 @@ const postTransaction = async (req, res, next) => {
       }
     }
 
+    // Check authorization AFTER validation
+    const cashier = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!cashier || !["cashier", "manager", "superuser"].includes(cashier.role)) {
+      throw new Error("Forbidden");
+    }
+
     const basePoints = Math.round(spent / 0.25);
     let pointsEarned = basePoints;
     for (const promo of validPromotions) {
@@ -87,8 +93,7 @@ const postTransaction = async (req, res, next) => {
       if (promo.rate) pointsEarned += Math.round(basePoints * promo.rate);
     }
 
-    const cashier = req.me;
-    const suspicious = cashier?.suspicious || false;
+    const suspicious = cashier.suspicious || false;
 
     const transaction = await prisma.transaction.create({
       data: {
@@ -166,7 +171,11 @@ const adjustmentTransaction = async (req, res, next) => {
     });
     if (!relatedTransaction) throw new Error("Bad Request");
 
-    const manager = req.me;
+    // Check authorization AFTER validation
+    const manager = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!manager || !["manager", "superuser"].includes(manager.role)) {
+      throw new Error("Forbidden");
+    }
     const transaction = await prisma.transaction.create({
       data: {
         userId: customer.id,
@@ -219,6 +228,12 @@ const getTransactions = async (req, res, next) => {
     const limitNum = Number(limit);
     if (isNaN(pageNum) || pageNum < 1) throw new Error("Bad Request");
     if (isNaN(limitNum) || limitNum < 1) throw new Error("Bad Request");
+
+    // Check authorization AFTER validation
+    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!user || !["manager", "superuser"].includes(user.role)) {
+      throw new Error("Forbidden");
+    }
 
     const where = {};
 
@@ -305,6 +320,12 @@ const getTransactionById = async (req, res, next) => {
 
     if (!t) throw new Error("Not Found");
 
+    // Check authorization AFTER validation
+    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!user || !["manager", "superuser"].includes(user.role)) {
+      throw new Error("Forbidden");
+    }
+
     return res.status(200).json({
       id: t.id,
       utorid: t.user.utorid,
@@ -337,6 +358,12 @@ const patchTransactionAsSuspiciousById = async (req, res, next) => {
     });
 
     if (!transaction) throw new Error("Not Found");
+
+    // Check authorization AFTER validation
+    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!user || !["manager", "superuser"].includes(user.role)) {
+      throw new Error("Forbidden");
+    }
 
     if (transaction.suspicious === suspicious) {
       return res.status(200).json({
@@ -400,6 +427,12 @@ const patchRedemptionTransactionStatusById = async (req, res, next) => {
 
     if (!transaction) throw new Error("Not Found");
     if (transaction.type !== "redemption") throw new Error("Bad Request");
+
+    // Check authorization AFTER validation
+    const cashier = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!cashier || !["cashier", "manager", "superuser"].includes(cashier.role)) {
+      throw new Error("Forbidden");
+    }
 
     if (processed) {
       if (transaction.redeemed === transaction.amount) {

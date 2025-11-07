@@ -38,20 +38,25 @@ const postUser = async (req, res, next) => {
     const existing = await prisma.user.findFirst({ where: { utorid: normalizedUtorid } });
     if (existing) throw new Error("Conflict");
 
+    // Check authorization AFTER validation
+    const currentUser = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!currentUser || !["cashier", "manager", "superuser"].includes(currentUser.role)) {
+      throw new Error("Forbidden");
+    }
+
     const resetToken = uuidv4();
     const resetExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const hashedPassword = await hashPassword(uuidv4());
 
     const roleToAssign = (() => {
-      if (!req.me) return "regular";
       const desired = req.body.role || "regular";
       if (!VALID_ROLES.includes(desired)) throw new Error("Bad Request");
 
-      if (req.me.role === "cashier" && desired !== "regular") {
+      if (currentUser.role === "cashier" && desired !== "regular") {
         throw new Error("Forbidden");
       }
 
-      if (req.me.role === "manager" && desired === "superuser") {
+      if (currentUser.role === "manager" && desired === "superuser") {
         throw new Error("Forbidden");
       }
 
@@ -107,6 +112,12 @@ const getUsers = async (req, res, next) => {
 
     if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100) {
       throw new Error("Bad Request");
+    }
+
+    // Check authorization AFTER validation
+    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!user || !["manager", "superuser"].includes(user.role)) {
+      throw new Error("Forbidden");
     }
 
     const where = {};
@@ -224,10 +235,13 @@ const getUserById = async (req, res, next) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
-    const meRole = req.me?.role;
-    if (!meRole) throw new Error("Unauthorized");
+    // Check authorization AFTER validation
+    const me = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!me || !["cashier", "manager", "superuser"].includes(me.role)) {
+      throw new Error("Forbidden");
+    }
 
-    const isManagerOrHigher = meRole === "manager" || meRole === "superuser";
+    const isManagerOrHigher = me.role === "manager" || me.role === "superuser";
 
     const selectFields = isManagerOrHigher
       ? {
@@ -297,15 +311,8 @@ const patchUserById = async (req, res, next) => {
       role === undefined
     ) throw new Error("Bad Request");
 
-    const meRole = req.me?.role;
-    if (!meRole) throw new Error("Unauthorized");
-
-    if (role !== undefined) {
-      if (!["regular", "cashier", "manager", "superuser"].includes(role))
-        throw new Error("Bad Request");
-
-      if (meRole === "manager" && !["regular", "cashier"].includes(role))
-        throw new Error("Forbidden");
+    if (role !== undefined && !["regular", "cashier", "manager", "superuser"].includes(role)) {
+      throw new Error("Bad Request");
     }
 
     if (email !== undefined) {
@@ -314,16 +321,34 @@ const patchUserById = async (req, res, next) => {
       if (!emailOk) throw new Error("Bad Request");
     }
 
-    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
-
-    if (suspicious !== undefined && typeof suspicious !== "boolean")
+    if (verified !== undefined && typeof verified !== "boolean") {
       throw new Error("Bad Request");
+    }
 
-    const current = await prisma.user.findUnique({
+    if (suspicious !== undefined && typeof suspicious !== "boolean") {
+      throw new Error("Bad Request");
+    }
+
+    const userToUpdate = await prisma.user.findUnique({ 
       where: { id },
       select: { id: true, utorid: true, name: true, suspicious: true, role: true }
     });
-    if (!current) throw new Error("Not Found");
+    if (!userToUpdate) throw new Error("Not Found");
+
+    // Check authorization AFTER validation
+    const me = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!me || !["manager", "superuser"].includes(me.role)) {
+      throw new Error("Forbidden");
+    }
+
+    if (role !== undefined) {
+      if (me.role === "manager" && !["regular", "cashier"].includes(role))
+        throw new Error("Forbidden");
+    }
+
+    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
+
+    const current = userToUpdate;
 
     const data = {};
     const response = { id: current.id, utorid: current.utorid, name: current.name };
@@ -616,6 +641,12 @@ const getUserTransactions = async (req, res, next) => {
 
     const userExists = await prisma.user.count({ where: { id } });
     if (!userExists) throw new Error("Not Found");
+
+    // Check authorization AFTER validation
+    const me = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+    if (!me || !["cashier", "manager", "superuser"].includes(me.role)) {
+      throw new Error("Forbidden");
+    }
 
     const [count, rows] = await prisma.$transaction([
       prisma.transaction.count({ where: { userId: id } }),

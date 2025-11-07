@@ -121,7 +121,11 @@ const postEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        const creator = req.me;
+        // Check authorization AFTER validation
+        const creator = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+        if (!creator || !["manager", "superuser"].includes(creator.role)) {
+            throw new Error("Forbidden");
+        }
 
         const event = await prisma.event.create({
             data: {
@@ -375,8 +379,23 @@ const patchEventById = async (req, res, next) => {
             if (!Number.isInteger(points) || points < existing.pointsAwarded) {
                 throw new Error("Bad Request");
             }
+            
+            // Check authorization for changing points BEFORE applying the change
+            const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+            if (!viewer || viewer.role !== "superuser") {
+                throw new Error("Forbidden");
+            }
+            
             data.points = points;
             data.pointsRemain = points - existing.pointsAwarded;
+        }
+
+        // Check authorization AFTER validation (for non-points fields)
+        if (points === undefined) {
+            const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+            if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
+                throw new Error("Forbidden");
+            }
         }
 
         if (published !== undefined) {
@@ -416,6 +435,12 @@ const deleteEventById = async (req, res, next) => {
 
         if (event.startTime <= new Date()) {
             throw new Error("Bad Request");
+        }
+
+        // Check authorization AFTER validation
+        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
+            throw new Error("Forbidden");
         }
 
         await prisma.event.delete({ where: { id } });
@@ -465,6 +490,12 @@ const postOrganizerToEvent = async (req, res, next) => {
 
         if (event.guests.some((g) => g.id === target.id)) {
             throw new Error("Bad Request");
+        }
+
+        // Check authorization AFTER validation
+        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
+            throw new Error("Forbidden");
         }
 
         const updated = await prisma.event.update({
@@ -523,6 +554,12 @@ const removeOrganizerFromEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
+        // Check authorization AFTER validation
+        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
+            throw new Error("Forbidden");
+        }
+
         await prisma.event.update({
             where: { id: eventId },
             data: { organizers: { disconnect: { id: userId } } },
@@ -577,6 +614,12 @@ const postGuestToEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
+        // Check authorization AFTER validation
+        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
+            throw new Error("Forbidden");
+        }
+
         const alreadyGuest = event.guests.some((g) => g.id === target.id);
 
         let numGuests = event.guests.length;
@@ -626,6 +669,12 @@ const deleteGuestFromEvent = async (req, res, next) => {
 
         if (!event.guests.some((g) => g.id === userId)) {
             throw new Error("Not Found");
+        }
+
+        // Check authorization AFTER validation
+        const viewer = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
+        if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
+            throw new Error("Forbidden");
         }
 
         await prisma.event.update({
@@ -768,14 +817,7 @@ const createRewardTransaction = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        const requester = req.me || (await loadViewer(req));
-
-        const isOrganizer = requester && event.organizers.some((o) => o.id === requester.id);
-        if (!requester || (!isOrganizer && !["manager", "superuser"].includes(requester.role))) {
-            throw new Error("Forbidden");
-        }
-
-        // Determine guests to reward
+        // Determine guests to reward (for validation)
         let guestsToReward;
         if (utorid) {
             // Award to specific guest
@@ -792,6 +834,13 @@ const createRewardTransaction = async (req, res, next) => {
 
         if (event.pointsRemain < amount * guestsToReward.length) {
             throw new Error("Bad Request");
+        }
+
+        // Check authorization AFTER validation
+        const requester = await loadViewer(req);
+        const isOrganizer = requester && event.organizers.some((o) => o.id === requester.id);
+        if (!requester || (!isOrganizer && !["manager", "superuser"].includes(requester.role))) {
+            throw new Error("Forbidden");
         }
 
         const transactions = await prisma.$transaction(async (tx) => {
