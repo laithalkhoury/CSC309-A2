@@ -2,6 +2,30 @@ const { v4: uuidv4 } = require("uuid");
 const prisma = require("../prismaClient");
 const { hashPassword, comparePassword } = require("../services/bcrypt");
 
+function formatPromotionReferences(promotionList = []) {
+  if (!Array.isArray(promotionList) || promotionList.length === 0) {
+    return [];
+  }
+
+  return promotionList
+    .filter((entry) => entry && typeof entry.id === "number")
+    .map((entry) => ({ int: entry.id, str: String(entry.id) }));
+}
+
+function formatCreatedBy(user, fallback, options = {}) {
+  const { defaultValue = null } = options;
+
+  if (user?.utorid) {
+    return user.utorid;
+  }
+
+  if (fallback !== undefined && fallback !== null && fallback !== "") {
+    return fallback;
+  }
+
+  return defaultValue;
+}
+
 const VALID_ROLES = ["regular", "cashier", "manager", "superuser"]; // keep in sync with schema
 
 async function loadCurrentUser(req) {
@@ -596,7 +620,10 @@ const postRedemptionTransaction = async (req, res, next) => {
       processedBy: null,
       amount: Math.abs(transaction.amount),
       remark: transaction.remark || "",
-      createdBy: transaction.createdBy?.utorid || fresh.utorid,
+      promotionIds: formatPromotionReferences(transaction.promotions),
+      createdBy: formatCreatedBy(transaction.createdBy, fresh.utorid, {
+        defaultValue: fresh.utorid,
+      }),
     });
   } catch (err) {
     if (err.code === "INSUFFICIENT_POINTS") {
@@ -616,8 +643,8 @@ const buildTransactionResponse = (record) => ({
   remark: record.remark || "",
   createdAt: record.createdAt,
   relatedId: record.relatedId ?? undefined,
-  promotionIds: record.promotions?.map((p) => p.id) ?? [],
-  createdBy: record.createdBy ? record.createdBy.utorid : null,
+  promotionIds: formatPromotionReferences(record.promotions ?? []),
+  createdBy: formatCreatedBy(record.createdBy, null),
   eventId: record.eventId ?? undefined,
 });
 

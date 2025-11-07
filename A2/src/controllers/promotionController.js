@@ -18,11 +18,27 @@ function toResponseType(dbValue) {
   return dbValue === "one_time" ? "one_time" : dbValue;
 }
 
-function coerceNumber(value) {
-  if (typeof value === "number") return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    return Number(value);
+function coerceNumber(value, options = {}) {
+  const { allowPercent = false } = options;
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : NaN;
   }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return NaN;
+
+    if (allowPercent && trimmed.endsWith("%")) {
+      const numericPart = trimmed.slice(0, -1).trim();
+      const parsed = Number(numericPart);
+      return Number.isFinite(parsed) ? parsed / 100 : NaN;
+    }
+
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
   return NaN;
 }
 
@@ -123,7 +139,7 @@ const postPromotion = async (req, res, next) => {
         if (isNullLike(rate)) {
           data.rate = null;
         } else {
-          const rateVal = coerceNumber(rate);
+          const rateVal = coerceNumber(rate, { allowPercent: true });
           if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
           data.rate = rateVal;
           hasBonusComponent = true;
@@ -154,7 +170,7 @@ const postPromotion = async (req, res, next) => {
         if (isNullLike(rate)) {
           data.rate = null;
         } else {
-          const rateVal = coerceNumber(rate);
+          const rateVal = coerceNumber(rate, { allowPercent: true });
           if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
           data.rate = rateVal;
         }
@@ -335,7 +351,7 @@ const patchPromotionById = async (req, res, next) => {
       if (isNullLike(rate)) {
         data.rate = null;
       } else {
-        const rateVal = coerceNumber(rate);
+        const rateVal = coerceNumber(rate, { allowPercent: true });
         if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
         data.rate = rateVal;
       }

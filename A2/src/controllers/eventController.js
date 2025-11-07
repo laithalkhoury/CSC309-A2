@@ -149,9 +149,9 @@ const getEvents = async (req, res, next) => {
         const viewer = await loadViewer(req);
         const role = viewer?.role ?? "regular";
 
-        const { page = 1, limit = 10, published } = req.query ?? {};
+        const { page = 1, limit = 25, published } = req.query ?? {};
         const pageNum = parseInt(page, 10) || 1;
-        const limitNum = parseInt(limit, 10) || 10;
+        const limitNum = parseInt(limit, 10) || 25;
 
         if (!Number.isInteger(pageNum) || pageNum < 1) throw new Error("Bad Request");
         if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100)
@@ -182,33 +182,11 @@ const getEvents = async (req, res, next) => {
             }
             where = conditions.length ? { AND: conditions } : {};
         } else {
-            const clauses = [];
-
-            if (publishedFilter !== false) {
-                const publishedConditions = [...otherFilters];
-                if (publishedFilter === true) {
-                    publishedConditions.push({ published: true });
-                }
-                clauses.push({ AND: [...publishedConditions, { published: true }] });
-            }
-
-            if (viewer && publishedFilter !== true) {
-                const membershipFilters = [...otherFilters];
-                if (publishedFilter !== null) {
-                    membershipFilters.push({ published: publishedFilter });
-                }
-                clauses.push({
-                    AND: [...membershipFilters, { organizers: { some: { id: viewer.id } } }],
-                });
-                clauses.push({
-                    AND: [...membershipFilters, { guests: { some: { id: viewer.id } } }],
-                });
-            }
-
-            if (clauses.length === 0) {
+            if (publishedFilter === false) {
                 where = { id: -1 };
             } else {
-                where = { OR: clauses };
+                const filters = [...otherFilters, { published: true }];
+                where = { AND: filters };
             }
         }
 

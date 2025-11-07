@@ -1,5 +1,29 @@
 const prisma = require("../prismaClient");
 
+function serializePromotionReferences(promotionList = []) {
+  if (!Array.isArray(promotionList) || promotionList.length === 0) {
+    return [];
+  }
+
+  return promotionList
+    .filter((entry) => entry && typeof entry.id === "number")
+    .map((entry) => ({ int: entry.id, str: String(entry.id) }));
+}
+
+function resolveCreatedBy(user, fallback, options = {}) {
+  const { defaultValue = null } = options;
+
+  if (user?.utorid) {
+    return user.utorid;
+  }
+
+  if (fallback !== undefined && fallback !== null && fallback !== "") {
+    return fallback;
+  }
+
+  return defaultValue;
+}
+
 // POST /transactions - Create a new transaction
 const postTransaction = async (req, res, next) => {
   try {
@@ -128,10 +152,10 @@ const postTransaction = async (req, res, next) => {
       utorid: customer.utorid,
       type: transaction.type,
       spent: transaction.spent,
-      earned: suspicious ? 0 : transaction.amount,  // No points earned if suspicious
+      earned: suspicious ? 0 : transaction.amount, // No points earned if suspicious
       remark: transaction.remark,
-      promotionIds: transaction.promotions.map((p) => p.id),
-      createdBy: cashier?.utorid || null,
+      promotionIds: serializePromotionReferences(transaction.promotions),
+      createdBy: resolveCreatedBy(cashier),
     });
   } catch (err) {
     next(err);
@@ -191,8 +215,8 @@ const adjustmentTransaction = async (req, res, next) => {
       type: transaction.type,
       relatedId: transaction.relatedId,
       remark: transaction.remark,
-      promotionIds: transaction.promotions.map((p) => p.id),
-      createdBy: manager?.utorid || null,
+      promotionIds: serializePromotionReferences(transaction.promotions),
+      createdBy: resolveCreatedBy(manager),
     });
   } catch (err) {
     next(err);
@@ -248,7 +272,7 @@ const redemptionTransaction = async (req, res, next) => {
       type: transaction.type,
       redeemed: transaction.redeemed,
       remark: transaction.remark || "",
-      createdBy: cashier?.utorid || null,
+      createdBy: resolveCreatedBy(cashier, customer.utorid),
     });
   } catch (err) {
     next(err);
@@ -356,7 +380,7 @@ const transferTransaction = async (req, res, next) => {
       amount: transferAmount,
       remark: remarkText,
       relatedId: result.creditId,
-      createdBy: cashier?.utorid || null,
+      createdBy: resolveCreatedBy(cashier),
     });
   } catch (err) {
     next(err);
@@ -443,10 +467,10 @@ const getTransactions = async (req, res, next) => {
         amount: t.amount,
         type: t.type,
         spent: t.spent,
-        promotionIds: t.promotions.map((p) => p.id),
+        promotionIds: serializePromotionReferences(t.promotions),
         suspicious: t.suspicious,
         remark: t.remark || "",
-        createdBy: t.createdBy?.utorid || null,
+        createdBy: resolveCreatedBy(t.createdBy),
       };
 
       if (t.relatedId !== null) record.relatedId = t.relatedId;
@@ -480,10 +504,10 @@ const getTransactionById = async (req, res, next) => {
       type: t.type,
       spent: t.spent,
       amount: t.amount,
-      promotionIds: t.promotions.map((p) => p.id),
+      promotionIds: serializePromotionReferences(t.promotions),
       suspicious: t.suspicious,
       remark: t.remark,
-      createdBy: t.createdBy?.utorid || null,
+      createdBy: resolveCreatedBy(t.createdBy),
     };
 
     if (t.relatedId !== null) {
@@ -520,10 +544,10 @@ const patchTransactionAsSuspiciousById = async (req, res, next) => {
         type: transaction.type,
         spent: transaction.spent,
         amount: transaction.amount,
-        promotionIds: transaction.promotions.map((p) => p.id),
+        promotionIds: serializePromotionReferences(transaction.promotions),
         suspicious: transaction.suspicious,
         remark: transaction.remark,
-        createdBy: transaction.createdBy?.utorid || null,
+        createdBy: resolveCreatedBy(transaction.createdBy),
       });
     }
 
@@ -550,10 +574,10 @@ const patchTransactionAsSuspiciousById = async (req, res, next) => {
       type: transaction.type,
       spent: transaction.spent,
       amount: transaction.amount,
-      promotionIds: transaction.promotions.map((p) => p.id),
+      promotionIds: serializePromotionReferences(transaction.promotions),
       suspicious: transaction.suspicious,
       remark: transaction.remark,
-      createdBy: transaction.createdBy?.utorid || null,
+      createdBy: resolveCreatedBy(transaction.createdBy),
     });
   } catch (err) {
     next(err);
@@ -619,7 +643,8 @@ const patchRedemptionTransactionStatusById = async (req, res, next) => {
       processedBy: processor?.utorid || null,
       redeemed: Math.abs(result.amount),
       remark: result.remark || "",
-      createdBy: result.createdBy?.utorid || null,
+      promotionIds: serializePromotionReferences(result.promotions),
+      createdBy: resolveCreatedBy(result.createdBy, result.user.utorid),
     });
   } catch (err) {
     next(err);
