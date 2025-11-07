@@ -430,20 +430,40 @@ const patchCurrentUser = async (req, res, next) => {
         // Empty string means clear the birthday
         data.birthday = null;
       } else {
-        // Validate date format and value
         if (typeof birthday !== "string") {
           throw new Error("Bad Request");
         }
-        const parsed = new Date(birthday);
-        if (Number.isNaN(parsed.valueOf())) {
+
+        const match = birthday.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) {
           throw new Error("Bad Request");
         }
-        // Optional: validate reasonable date range (e.g., not in future, not before 1900)
+
+        const [_, yearStr, monthStr, dayStr] = match;
+        const year = Number(yearStr);
+        const month = Number(monthStr);
+        const day = Number(dayStr);
+
+        const parsed = new Date(Date.UTC(year, month - 1, day));
+
+        if (
+          parsed.getUTCFullYear() !== year ||
+          parsed.getUTCMonth() + 1 !== month ||
+          parsed.getUTCDate() !== day
+        ) {
+          throw new Error("Bad Request");
+        }
+
         const now = new Date();
-        const minDate = new Date('1900-01-01');
-        if (parsed > now || parsed < minDate) {
+        const todayUtc = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        );
+        const minDate = new Date(Date.UTC(1900, 0, 1));
+
+        if (parsed > todayUtc || parsed < minDate) {
           throw new Error("Bad Request");
         }
+
         data.birthday = parsed;
       }
     } else if (birthday === null) {

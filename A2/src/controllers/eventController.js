@@ -437,12 +437,13 @@ const postOrganizerToEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        await prisma.event.update({
+        const updatedEvent = await prisma.event.update({
             where: { id: eventId },
             data: { organizers: { connect: { id: target.id } } },
+            include: BASE_EVENT_INCLUDE,
         });
 
-        return res.status(201).json({ id: target.id, utorid: target.utorid, name: target.name });
+        return res.status(201).json(serializeEvent(updatedEvent));
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -538,20 +539,25 @@ const postGuestToEvent = async (req, res, next) => {
 
         const alreadyGuest = event.guests.some((g) => g.id === target.id);
 
+        let updatedEvent;
         if (!alreadyGuest) {
-            await prisma.event.update({
+            updatedEvent = await prisma.event.update({
                 where: { id: eventId },
                 data: { guests: { connect: { id: target.id } } },
+                include: BASE_EVENT_INCLUDE,
+            });
+        } else {
+            updatedEvent = await prisma.event.findUnique({
+                where: { id: eventId },
+                include: BASE_EVENT_INCLUDE,
             });
         }
 
         return res
             .status(alreadyGuest ? 200 : 201)
             .json({
-                id: target.id,
-                utorid: target.utorid,
-                name: target.name,
-                guestAdded: !alreadyGuest
+                ...serializeEvent(updatedEvent),
+                guestAdded: { added: !alreadyGuest },
             });
     } catch (err) {
         if (err.statusCode === 410) {
