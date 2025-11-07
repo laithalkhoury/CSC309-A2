@@ -46,8 +46,15 @@ async function loadViewer(req) {
 }
 
 function ensureCapacity(event) {
-    if (event.capacity !== null && event._count.guests >= event.capacity) {
-        throw new Error("Bad Request");
+    if (event.capacity === null || event.capacity === undefined) {
+        return;
+    }
+
+    const guestCount = event._count?.guests ?? event.guests?.length ?? 0;
+    if (guestCount >= event.capacity) {
+        const error = new Error("Gone");
+        error.statusCode = 410;
+        throw error;
     }
 }
 
@@ -273,6 +280,12 @@ const patchEventById = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
+        const actorRole = req.me?.role ?? "regular";
+        const requiresManagerRole = points !== undefined || published !== undefined;
+        if (requiresManagerRole && !["manager", "superuser"].includes(actorRole)) {
+            throw new Error("Forbidden");
+        }
+
         const existing = await prisma.event.findUnique({
             where: { id },
             include: {
@@ -293,21 +306,25 @@ const patchEventById = async (req, res, next) => {
         const data = {};
 
         if (name !== undefined) {
-            if (typeof name !== "string" || !name.trim() || name.length > 100) {
+            if (typeof name !== "string" || !name.trim() || name.trim().length > 100) {
                 throw new Error("Bad Request");
             }
             data.name = name.trim();
         }
 
         if (description !== undefined) {
-            if (typeof description !== "string" || !description.trim() || description.length > 1000) {
+            if (
+                typeof description !== "string" ||
+                !description.trim() ||
+                description.trim().length > 1000
+            ) {
                 throw new Error("Bad Request");
             }
             data.description = description.trim();
         }
 
         if (location !== undefined) {
-            if (typeof location !== "string" || !location.trim() || location.length > 200) {
+            if (typeof location !== "string" || !location.trim() || location.trim().length > 200) {
                 throw new Error("Bad Request");
             }
             data.location = location.trim();
@@ -325,35 +342,55 @@ const patchEventById = async (req, res, next) => {
             data.endTime = end;
         }
 
-        if (data.startTime && data.endTime && data.endTime <= data.startTime) {
-            throw new Error("Bad Request");
+        if (startTime !== undefined || endTime !== undefined) {
+            const finalStart = data.startTime ?? existing.startTime;
+            const finalEnd = data.endTime ?? existing.endTime;
+            if (finalEnd <= finalStart) {
+                throw new Error("Bad Request");
+            }
         }
 
         if (capacity !== undefined) {
             if (capacity === null) {
                 data.capacity = null;
-            } else if (!Number.isInteger(capacity) || capacity <= 0) {
-                throw new Error("Bad Request");
-            } else if (existing.guests.length > capacity) {
-                throw new Error("Bad Request");
             } else {
-                data.capacity = capacity;
+                const parsedCapacity =
+                    typeof capacity === "string" && capacity.trim() !== ""
+                        ? Number(capacity)
+                        : capacity;
+
+                if (!Number.isInteger(parsedCapacity) || parsedCapacity <= 0) {
+                    throw new Error("Bad Request");
+                }
+
+                if (existing.guests.length > parsedCapacity) {
+                    throw new Error("Bad Request");
+                }
+
+                data.capacity = parsedCapacity;
             }
         }
 
         if (points !== undefined) {
-            if (!Number.isInteger(points) || points < existing.pointsAwarded) {
+            const parsedPoints =
+                typeof points === "string" && points.trim() !== ""
+                    ? Number(points)
+                    : points;
+
+            if (!Number.isInteger(parsedPoints) || parsedPoints <= 0) {
                 throw new Error("Bad Request");
             }
-            data.points = points;
-            data.pointsRemain = points - existing.pointsAwarded;
+
+            if (parsedPoints < existing.pointsAwarded) {
+                throw new Error("Bad Request");
+            }
+
+            data.points = parsedPoints;
+            data.pointsRemain = parsedPoints - existing.pointsAwarded;
         }
 
         if (published !== undefined) {
             if (typeof published !== "boolean") throw new Error("Bad Request");
-            if (published && existing.organizers.length === 0) {
-                throw new Error("Bad Request");
-            }
             data.published = published;
         }
 
