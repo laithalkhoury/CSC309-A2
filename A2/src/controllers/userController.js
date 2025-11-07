@@ -500,7 +500,12 @@ const patchCurrentUser = async (req, res, next) => {
       },
     });
 
-    return res.status(200).json(updated);
+    const responseBody = {
+      ...updated,
+      birthday: updated.birthday ? updated.birthday.toISOString().slice(0, 10) : null,
+    };
+
+    return res.status(200).json(responseBody);
   } catch (err) {
     next(err);
   }

@@ -522,8 +522,6 @@ const postGuestToEvent = async (req, res, next) => {
             throw error;
         }
 
-        ensureCapacity(event);
-
         const target = await prisma.user.findFirst({
             where: utorid
                 ? { utorid: String(utorid).toLowerCase() }
@@ -539,6 +537,10 @@ const postGuestToEvent = async (req, res, next) => {
 
         const alreadyGuest = event.guests.some((g) => g.id === target.id);
 
+        if (!alreadyGuest) {
+            ensureCapacity(event);
+        }
+
         let updatedEvent;
         if (!alreadyGuest) {
             updatedEvent = await prisma.event.update({
@@ -552,13 +554,15 @@ const postGuestToEvent = async (req, res, next) => {
                 include: BASE_EVENT_INCLUDE,
             });
         }
+        const responseBody = serializeEvent(updatedEvent);
+        responseBody.guestAdded = {
+            id: target.id,
+            utorid: target.utorid,
+            name: target.name,
+            added: !alreadyGuest,
+        };
 
-        return res
-            .status(alreadyGuest ? 200 : 201)
-            .json({
-                ...serializeEvent(updatedEvent),
-                guestAdded: { added: !alreadyGuest },
-            });
+        return res.status(alreadyGuest ? 200 : 201).json(responseBody);
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -637,23 +641,30 @@ const postCurrentUserToEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        ensureCapacity(event);
-
         const alreadyGuest = event.guests.some((g) => g.id === viewer.id);
 
         if (!alreadyGuest) {
+            ensureCapacity(event);
             await prisma.event.update({
                 where: { id: eventId },
                 data: { guests: { connect: { id: viewer.id } } },
             });
         }
 
-        return res.status(alreadyGuest ? 200 : 201).json({
+        const eventDetails = await prisma.event.findUnique({
+            where: { id: eventId },
+            include: BASE_EVENT_INCLUDE,
+        });
+
+        const responseBody = serializeEvent(eventDetails);
+        responseBody.guestAdded = {
             id: viewer.id,
             utorid: viewer.utorid,
             name: viewer.name,
-            guestAdded: !alreadyGuest
-        });
+            added: !alreadyGuest,
+        };
+
+        return res.status(alreadyGuest ? 200 : 201).json(responseBody);
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
