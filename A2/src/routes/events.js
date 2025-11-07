@@ -14,31 +14,32 @@ const {
     removeCurrentUserFromEvent,
     createRewardTransaction
 } = require("../controllers/eventController.js");
+const { authenticate, requires } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.post("/", postEvent);
+router.post("/", authenticate, requires("manager"), postEvent);
 
-router.get("/", getEvents);
+router.get("/", authenticate, getEvents);
 
-router.get("/:eventId", getEventById);
+router.get("/:eventId", authenticate, getEventById);
 
-router.patch("/:eventId", patchEventById);
+router.patch("/:eventId", authenticate, requires("manager"), patchEventById);
 
-router.delete("/:eventId", deleteEventById);
+router.delete("/:eventId", authenticate, requires("manager"), deleteEventById);
 
-router.post("/:eventId/organizers", postOrganizerToEvent);
+router.post("/:eventId/organizers", authenticate, requires("manager"), postOrganizerToEvent);
 
-router.delete("/:eventId/organizers/:userId", removeOrganizerFromEvent);
+router.delete("/:eventId/organizers/:userId", authenticate, requires("manager"), removeOrganizerFromEvent);
 
-router.post("/:eventId/guests", postGuestToEvent);
+router.post("/:eventId/guests", authenticate, requires("manager"), postGuestToEvent);
 
-router.delete("/:eventId/guests/:userId", deleteGuestFromEvent);
+router.delete("/:eventId/guests/:userId", authenticate, requires("manager"), deleteGuestFromEvent);
 
-router.post("/:eventId/guests/me", postCurrentUserToEvent);
+router.post("/:eventId/guests/me", authenticate, postCurrentUserToEvent);
 
-router.delete("/:eventId/guests/me", removeCurrentUserFromEvent);
+router.delete("/:eventId/guests/me", authenticate, removeCurrentUserFromEvent);
 
-router.post("/:eventId/transactions", createRewardTransaction);
+router.post("/:eventId/transactions", authenticate, createRewardTransaction);
 
 module.exports = router;
