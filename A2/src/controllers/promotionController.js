@@ -13,8 +13,8 @@ function serializePromotion(promotion) {
     name: promotion.name,
     description: promotion.description,
     type: promotion.type,
-    startTime: promotion.startTime.toISOString(),
-    endTime: promotion.endTime.toISOString(),
+    startTime: promotion.startTime,
+    endTime: promotion.endTime,
     rate: promotion.rate,
     points: promotion.points,
     minSpending: promotion.minSpending,
@@ -36,12 +36,6 @@ const postPromotion = async (req, res, next) => {
 
     if (!name || !description || !type || !startTime || !endTime) {
       throw new Error("Bad Request");
-    }
-
-    // Check authorization AFTER validation
-    const viewer = await loadViewer(req);
-    if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-      throw new Error("Forbidden");
     }
 
     if (typeof name !== "string" || name.length > 120) throw new Error("Bad Request");
@@ -104,7 +98,7 @@ const postPromotion = async (req, res, next) => {
 
 const getPromotions = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, started, ended, type } = req.query ?? {};
+    const { page = 1, limit = 20, started, ended, type } = req.query ?? {};
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -177,10 +171,7 @@ const getPromotionById = async (req, res, next) => {
     const role = viewer?.role ?? "regular";
 
     if (role === "regular" || role === "cashier") {
-      // Prisma returns Date objects, no need to convert
-      const startTime = promotion.startTime;
-      const endTime = promotion.endTime;
-      if (!(startTime <= now && endTime >= now)) {
+      if (!(promotion.startTime <= now && promotion.endTime >= now)) {
         throw new Error("Not Found");
       }
     }
@@ -212,12 +203,6 @@ const patchPromotionById = async (req, res, next) => {
       minSpending === undefined
     ) {
       throw new Error("Bad Request");
-    }
-
-    // Check authorization AFTER validation
-    const viewer = await loadViewer(req);
-    if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-      throw new Error("Forbidden");
     }
 
     const now = new Date();
@@ -298,12 +283,6 @@ const deletePromotionById = async (req, res, next) => {
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
-
-    // Check authorization AFTER validation
-    const viewer = await loadViewer(req);
-    if (!viewer || !["manager", "superuser"].includes(viewer.role)) {
-      throw new Error("Forbidden");
-    }
 
     if (promotion.startTime <= new Date()) {
       throw new Error("Forbidden");

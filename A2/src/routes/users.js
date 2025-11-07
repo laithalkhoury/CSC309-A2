@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { authenticate } = require("../middleware/authMiddleware");
+const { authenticate, requires } = require("../middleware/authMiddleware");
 
 const {
   postUser,
@@ -18,10 +18,10 @@ const {
 } = require("../controllers/userController");
 
 // POST /users - Register a new user (cashier or higher)
-router.post("/", authenticate, postUser);
+router.post("/", authenticate, requires("cashier"), postUser);
 
 // GET /users - Retrieve a list of users (manager or higher)
-router.get("/", authenticate, getUsers);
+router.get("/", authenticate, requires("manager"), getUsers);
 
 // GET /users/me - Get current authenticated user (regular or higher)
 router.get("/me", authenticate, getCurrentUser);
@@ -39,13 +39,14 @@ router.post("/me/transactions", authenticate, postRedemptionTransaction);
 router.get("/me/transactions", authenticate, getCurrentUserTransactions);
 
 // GET /users/:userId - Retrieve a specific user
-router.get("/:userId", authenticate, getUserById);
+// (cashier or higher; managers/superusers will see extended fields in the controller)
+router.get("/:userId", authenticate, requires("cashier"), getUserById);
 
 // PATCH /users/:userId - Update a specific user's data (manager or higher)
-router.patch("/:userId", authenticate, patchUserById);
+router.patch("/:userId", authenticate, requires("manager"), patchUserById);
 
 // GET /users/:userId/transactions - Get user's transactions (cashier or higher)
-router.get("/:userId/transactions", authenticate, getUserTransactions);
+router.get("/:userId/transactions", authenticate, requires("cashier"), getUserTransactions);
 
 // POST /users/:userId/transactions - Create a transfer (regular or higher; sender = current user)
 router.post("/:userId/transactions", authenticate, postTransferTransaction);

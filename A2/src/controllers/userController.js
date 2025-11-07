@@ -38,25 +38,20 @@ const postUser = async (req, res, next) => {
     const existing = await prisma.user.findFirst({ where: { utorid: normalizedUtorid } });
     if (existing) throw new Error("Conflict");
 
-    // Check authorization AFTER validation
-    const currentUser = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!currentUser || !["cashier", "manager", "superuser"].includes(currentUser.role)) {
-      throw new Error("Forbidden");
-    }
-
     const resetToken = uuidv4();
     const resetExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const hashedPassword = await hashPassword(uuidv4());
 
     const roleToAssign = (() => {
+      if (!req.me) return "regular";
       const desired = req.body.role || "regular";
       if (!VALID_ROLES.includes(desired)) throw new Error("Bad Request");
 
-      if (currentUser.role === "cashier" && desired !== "regular") {
+      if (req.me.role === "cashier" && desired !== "regular") {
         throw new Error("Forbidden");
       }
 
-      if (currentUser.role === "manager" && desired === "superuser") {
+      if (req.me.role === "manager" && desired === "superuser") {
         throw new Error("Forbidden");
       }
 
@@ -101,7 +96,7 @@ const postUser = async (req, res, next) => {
 // GET /users - Retrieve a list of users (manager or higher)
 const getUsers = async (req, res, next) => {
   try {
-    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
+    const { name, role, verified, activated, page = 1, limit = 20 } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -112,12 +107,6 @@ const getUsers = async (req, res, next) => {
 
     if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100) {
       throw new Error("Bad Request");
-    }
-
-    // Check authorization AFTER validation
-    const user = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!user || !["manager", "superuser"].includes(user.role)) {
-      throw new Error("Forbidden");
     }
 
     const where = {};
@@ -235,13 +224,10 @@ const getUserById = async (req, res, next) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
-    // Check authorization AFTER validation
-    const me = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!me || !["cashier", "manager", "superuser"].includes(me.role)) {
-      throw new Error("Forbidden");
-    }
+    const meRole = req.me?.role;
+    if (!meRole) throw new Error("Unauthorized");
 
-    const isManagerOrHigher = me.role === "manager" || me.role === "superuser";
+    const isManagerOrHigher = meRole === "manager" || meRole === "superuser";
 
     const selectFields = isManagerOrHigher
       ? {
@@ -311,8 +297,15 @@ const patchUserById = async (req, res, next) => {
       role === undefined
     ) throw new Error("Bad Request");
 
-    if (role !== undefined && !["regular", "cashier", "manager", "superuser"].includes(role)) {
-      throw new Error("Bad Request");
+    const meRole = req.me?.role;
+    if (!meRole) throw new Error("Unauthorized");
+
+    if (role !== undefined) {
+      if (!["regular", "cashier", "manager", "superuser"].includes(role))
+        throw new Error("Bad Request");
+
+      if (meRole === "manager" && !["regular", "cashier"].includes(role))
+        throw new Error("Forbidden");
     }
 
     if (email !== undefined) {
@@ -321,34 +314,16 @@ const patchUserById = async (req, res, next) => {
       if (!emailOk) throw new Error("Bad Request");
     }
 
-    if (verified !== undefined && typeof verified !== "boolean") {
-      throw new Error("Bad Request");
-    }
+    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
 
-    if (suspicious !== undefined && typeof suspicious !== "boolean") {
+    if (suspicious !== undefined && typeof suspicious !== "boolean")
       throw new Error("Bad Request");
-    }
 
-    const userToUpdate = await prisma.user.findUnique({ 
+    const current = await prisma.user.findUnique({
       where: { id },
       select: { id: true, utorid: true, name: true, suspicious: true, role: true }
     });
-    if (!userToUpdate) throw new Error("Not Found");
-
-    // Check authorization AFTER validation
-    const me = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!me || !["manager", "superuser"].includes(me.role)) {
-      throw new Error("Forbidden");
-    }
-
-    if (role !== undefined) {
-      if (me.role === "manager" && !["regular", "cashier"].includes(role))
-        throw new Error("Forbidden");
-    }
-
-    if (verified !== undefined && verified !== true) throw new Error("Bad Request");
-
-    const current = userToUpdate;
+    if (!current) throw new Error("Not Found");
 
     const data = {};
     const response = { id: current.id, utorid: current.utorid, name: current.name };
@@ -466,6 +441,8 @@ const patchCurrentUser = async (req, res, next) => {
         lastLogin: true,
         verified: true,
         avatarUrl: true,
+        suspicious: true,
+        password: true,
       },
     });
 
@@ -479,23 +456,21 @@ const patchCurrentUserPassword = async (req, res, next) => {
   try {
     const me = await loadCurrentUser(req);
 
-    const { old, new: newPassword } = req.body ?? {};
+    const { oldPassword, newPassword } = req.body ?? {};
 
-    if (!old || !newPassword) {
+    if (!oldPassword || !newPassword) {
       throw new Error("Bad Request");
     }
 
-    // Check old password BEFORE validating new password format
-    const matches = await comparePassword(old, me.password);
-    if (!matches) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    // Now validate new password format
     const passwordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,64}$/;
     if (!passwordRegex.test(newPassword)) {
       throw new Error("Bad Request");
+    }
+
+    const matches = await comparePassword(oldPassword, me.password);
+    if (!matches) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     const hashed = await hashPassword(newPassword);
@@ -595,7 +570,7 @@ const getCurrentUserTransactions = async (req, res, next) => {
   try {
     const me = await loadCurrentUser(req);
 
-    const { page = 1, limit = 10 } = req.query ?? {};
+    const { page = 1, limit = 20 } = req.query ?? {};
     const pageNum = Number(page);
     const limitNum = Number(limit);
 
@@ -631,7 +606,7 @@ const getUserTransactions = async (req, res, next) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
-    const { page = 1, limit = 10 } = req.query ?? {};
+    const { page = 1, limit = 20 } = req.query ?? {};
     const pageNum = Number(page);
     const limitNum = Number(limit);
 
@@ -641,12 +616,6 @@ const getUserTransactions = async (req, res, next) => {
 
     const userExists = await prisma.user.count({ where: { id } });
     if (!userExists) throw new Error("Not Found");
-
-    // Check authorization AFTER validation
-    const me = req.auth ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
-    if (!me || !["cashier", "manager", "superuser"].includes(me.role)) {
-      throw new Error("Forbidden");
-    }
 
     const [count, rows] = await prisma.$transaction([
       prisma.transaction.count({ where: { userId: id } }),

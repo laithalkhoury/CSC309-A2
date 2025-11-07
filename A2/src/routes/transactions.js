@@ -8,7 +8,7 @@ const {
     patchRedemptionTransactionStatusById,
     adjustmentTransaction,
 } = require("../controllers/transactionController.js");
-const { authenticate } = require("../middleware/authMiddleware");
+const { authenticate, requires } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
@@ -20,6 +20,9 @@ const handleTransaction = async (req, res, next) => {
             return await postTransaction(req, res, next);
         }
         else if (type === "adjustment") {
+            if (!req.me || (req.me.role !== "manager" && req.me.role !== "superuser")) {
+                throw new Error("Forbidden");
+            }
             return await adjustmentTransaction(req, res, next);
         }
         else {
@@ -30,11 +33,10 @@ const handleTransaction = async (req, res, next) => {
     }
 }
 
-router.post("/", authenticate, handleTransaction);
-router.get("/", authenticate, getTransactions);
-router.get("/:transactionId", authenticate, getTransactionById);
-router.patch("/:transactionId/suspicious", authenticate, patchTransactionAsSuspiciousById);
-router.patch("/:transactionId/processed", authenticate, patchRedemptionTransactionStatusById);
+router.post("/", authenticate, requires("cashier"), postTransaction);
+router.get("/", authenticate, requires("manager"), getTransactions);
+router.get("/:transactionId", authenticate, requires("manager"), getTransactionById);
+router.patch("/:transactionId/suspicious", authenticate, requires("manager"), patchTransactionAsSuspiciousById);
 
 
 
