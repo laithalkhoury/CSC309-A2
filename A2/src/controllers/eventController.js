@@ -1,4 +1,9 @@
 const prisma = require("../prismaClient");
+const {
+  buildUserWhere,
+  normalizeUtorid,
+  parsePositiveInt,
+} = require("../utils/identifiers");
 
 const BASE_EVENT_INCLUDE = {
   organizers: {
@@ -43,6 +48,14 @@ async function loadViewer(req) {
   if (!req.auth || typeof req.auth.userId !== "number") return null;
   const viewer = await prisma.user.findUnique({ where: { id: req.auth.userId } });
   return viewer;
+}
+
+function requireEventId(param) {
+  const id = parsePositiveInt(param);
+  if (!id) {
+    throw new Error("Not Found");
+  }
+  return id;
 }
 
 function ensureCapacity(event) {
@@ -213,8 +226,7 @@ const getEvents = async (req, res, next) => {
 
 const getEventById = async (req, res, next) => {
   try {
-    const id = Number(req.params.eventId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    const id = requireEventId(req.params.eventId);
 
     const viewer = await loadViewer(req);
     const role = viewer?.role ?? "regular";
@@ -248,8 +260,7 @@ const getEventById = async (req, res, next) => {
 
 const patchEventById = async (req, res, next) => {
   try {
-    const id = Number(req.params.eventId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    const id = requireEventId(req.params.eventId);
 
     const {
       name,
@@ -376,8 +387,7 @@ const patchEventById = async (req, res, next) => {
 
 const deleteEventById = async (req, res, next) => {
   try {
-    const id = Number(req.params.eventId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    const id = requireEventId(req.params.eventId);
 
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) throw new Error("Not Found");
@@ -400,12 +410,22 @@ const deleteEventById = async (req, res, next) => {
 
 const postOrganizerToEvent = async (req, res, next) => {
   try {
-    const eventId = Number(req.params.eventId);
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
+    const eventId = requireEventId(req.params.eventId);
 
     const { utorid, userId } = req.body ?? {};
 
     if (!utorid && !userId) throw new Error("Bad Request");
+
+    let targetWhere;
+    if (utorid) {
+      const normalized = normalizeUtorid(utorid);
+      if (!normalized) throw new Error("Bad Request");
+      targetWhere = { utorid: normalized };
+    } else {
+      const parsedUserId = parsePositiveInt(userId);
+      if (!parsedUserId) throw new Error("Bad Request");
+      targetWhere = { id: parsedUserId };
+    }
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -422,10 +442,8 @@ const postOrganizerToEvent = async (req, res, next) => {
       throw error;
     }
 
-    const target = await prisma.user.findFirst({
-      where: utorid
-        ? { utorid: String(utorid).toLowerCase() }
-        : { id: Number(userId) },
+    const target = await prisma.user.findUnique({
+      where: targetWhere,
       select: { id: true, utorid: true, name: true },
     });
 
@@ -455,11 +473,16 @@ const postOrganizerToEvent = async (req, res, next) => {
 
 const removeOrganizerFromEvent = async (req, res, next) => {
   try {
-    const eventId = Number(req.params.eventId);
-    const userId = Number(req.params.userId);
+    const eventId = requireEventId(req.params.eventId);
 
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
-    if (!Number.isInteger(userId) || userId <= 0) throw new Error("Bad Request");
+    const userWhere = buildUserWhere(req.params.userId);
+    if (!userWhere) throw new Error("Not Found");
+
+    const organizer = await prisma.user.findUnique({
+      where: userWhere,
+      select: { id: true },
+    });
+    if (!organizer) throw new Error("Not Found");
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -476,7 +499,7 @@ const removeOrganizerFromEvent = async (req, res, next) => {
       throw error;
     }
 
-    if (!event.organizers.some((o) => o.id === userId)) {
+    if (!event.organizers.some((o) => o.id === organizer.id)) {
       throw new Error("Not Found");
     }
 
@@ -486,10 +509,10 @@ const removeOrganizerFromEvent = async (req, res, next) => {
 
     await prisma.event.update({
       where: { id: eventId },
-      data: { organizers: { disconnect: { id: userId } } },
+      data: { organizers: { disconnect: { id: organizer.id } } },
     });
 
-    return res.status(200).json({ id: userId });
+    return res.status(200).json({ id: organizer.id });
   } catch (err) {
     if (err.statusCode === 410) {
       return res.status(410).json({ error: "Gone" });
@@ -500,11 +523,21 @@ const removeOrganizerFromEvent = async (req, res, next) => {
 
 const postGuestToEvent = async (req, res, next) => {
   try {
-    const eventId = Number(req.params.eventId);
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
+    const eventId = requireEventId(req.params.eventId);
 
     const { utorid, userId } = req.body ?? {};
     if (!utorid && !userId) throw new Error("Bad Request");
+
+    let targetWhere;
+    if (utorid) {
+      const normalized = normalizeUtorid(utorid);
+      if (!normalized) throw new Error("Bad Request");
+      targetWhere = { utorid: normalized };
+    } else {
+      const parsedUserId = parsePositiveInt(userId);
+      if (!parsedUserId) throw new Error("Bad Request");
+      targetWhere = { id: parsedUserId };
+    }
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -525,10 +558,8 @@ const postGuestToEvent = async (req, res, next) => {
 
     ensureCapacity(event);
 
-    const target = await prisma.user.findFirst({
-      where: utorid
-        ? { utorid: String(utorid).toLowerCase() }
-        : { id: Number(userId) },
+    const target = await prisma.user.findUnique({
+      where: targetWhere,
       select: { id: true, utorid: true, name: true },
     });
 
@@ -560,11 +591,16 @@ const postGuestToEvent = async (req, res, next) => {
 
 const deleteGuestFromEvent = async (req, res, next) => {
   try {
-    const eventId = Number(req.params.eventId);
-    const userId = Number(req.params.userId);
+    const eventId = requireEventId(req.params.eventId);
 
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
-    if (!Number.isInteger(userId) || userId <= 0) throw new Error("Bad Request");
+    const userWhere = buildUserWhere(req.params.userId);
+    if (!userWhere) throw new Error("Not Found");
+
+    const guest = await prisma.user.findUnique({
+      where: userWhere,
+      select: { id: true },
+    });
+    if (!guest) throw new Error("Not Found");
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -579,16 +615,16 @@ const deleteGuestFromEvent = async (req, res, next) => {
       throw error;
     }
 
-    if (!event.guests.some((g) => g.id === userId)) {
+    if (!event.guests.some((g) => g.id === guest.id)) {
       throw new Error("Not Found");
     }
 
     await prisma.event.update({
       where: { id: eventId },
-      data: { guests: { disconnect: { id: userId } } },
+      data: { guests: { disconnect: { id: guest.id } } },
     });
 
-    return res.status(200).json({ id: userId });
+    return res.status(200).json({ id: guest.id });
   } catch (err) {
     if (err.statusCode === 410) {
       return res.status(410).json({ error: "Gone" });
@@ -602,8 +638,7 @@ const postCurrentUserToEvent = async (req, res, next) => {
     const viewer = await loadViewer(req);
     if (!viewer) throw new Error("Unauthorized");
 
-    const eventId = Number(req.params.eventId);
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
+    const eventId = requireEventId(req.params.eventId);
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -657,8 +692,7 @@ const removeCurrentUserFromEvent = async (req, res, next) => {
     const viewer = await loadViewer(req);
     if (!viewer) throw new Error("Unauthorized");
 
-    const eventId = Number(req.params.eventId);
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
+    const eventId = requireEventId(req.params.eventId);
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -695,8 +729,7 @@ const removeCurrentUserFromEvent = async (req, res, next) => {
 
 const createRewardTransaction = async (req, res, next) => {
   try {
-    const eventId = Number(req.params.eventId);
-    if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
+    const eventId = requireEventId(req.params.eventId);
 
     const { utorids = [], amount, remark = "" } = req.body ?? {};
 

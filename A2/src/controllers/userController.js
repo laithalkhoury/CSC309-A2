@@ -1,6 +1,10 @@
 const { v4: uuidv4 } = require("uuid");
 const prisma = require("../prismaClient");
 const { hashPassword, comparePassword } = require("../services/bcrypt");
+const {
+  buildUserWhere,
+  normalizeUtorid,
+} = require("../utils/identifiers");
 
 const VALID_ROLES = ["regular", "cashier", "manager", "superuser"]; // keep in sync with schema
 
@@ -28,14 +32,17 @@ const postUser = async (req, res, next) => {
     const utoridRegex = /^[a-zA-Z0-9]{7,8}$/;
     if (!utoridRegex.test(utorid)) throw new Error("Bad Request");
 
-    const normalizedUtorid = utorid.toLowerCase();
+    const normalizedUtorid = normalizeUtorid(utorid);
+    if (!normalizedUtorid) throw new Error("Bad Request");
 
     if (name.length < 1 || name.length > 50) throw new Error("Bad Request");
 
     const emailRegex = /^[A-Za-z0-9._%+-]+@(mail\.)?utoronto\.ca$/;
     if (!emailRegex.test(email)) throw new Error("Bad Request");
 
-    const existing = await prisma.user.findFirst({ where: { utorid: normalizedUtorid } });
+    const existing = await prisma.user.findFirst({
+      where: { utorid: normalizedUtorid },
+    });
     if (existing) throw new Error("Conflict");
 
     const resetToken = uuidv4();
@@ -96,7 +103,7 @@ const postUser = async (req, res, next) => {
 // GET /users - Retrieve a list of users (manager or higher)
 const getUsers = async (req, res, next) => {
   try {
-    const { name, role, verified, activated, page = 1, limit = 20 } = req.query;
+    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -221,9 +228,6 @@ const getCurrentUser = async (req, res, next) => {
 // GET /users/:userId
 const getUserById = async (req, res, next) => {
   try {
-    const id = Number(req.params.userId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
-
     const meRole = req.me?.role;
     if (!meRole) throw new Error("Unauthorized");
 
@@ -251,8 +255,11 @@ const getUserById = async (req, res, next) => {
           verified: true,
         };
 
+    const where = buildUserWhere(req.params.userId);
+    if (!where) throw new Error("Not Found");
+
     const user = await prisma.user.findUnique({
-      where: { id },
+      where,
       select: selectFields,
     });
     if (!user) throw new Error("Not Found");
@@ -263,7 +270,7 @@ const getUserById = async (req, res, next) => {
         type: "onetime",
         startTime: { lte: now },
         endTime: { gte: now },
-        usedByUsers: { none: { id } },
+        usedByUsers: { none: { id: user.id } },
       },
       select: {
         id: true,
@@ -285,9 +292,6 @@ const getUserById = async (req, res, next) => {
 // PATCH /users/:userId
 const patchUserById = async (req, res, next) => {
   try {
-    const id = Number(req.params.userId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
-
     const { email, verified, suspicious, role } = req.body;
 
     if (
@@ -319,9 +323,12 @@ const patchUserById = async (req, res, next) => {
     if (suspicious !== undefined && typeof suspicious !== "boolean")
       throw new Error("Bad Request");
 
+    const where = buildUserWhere(req.params.userId);
+    if (!where) throw new Error("Not Found");
+
     const current = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, utorid: true, name: true, suspicious: true, role: true }
+      where,
+      select: { id: true, utorid: true, name: true, suspicious: true, role: true },
     });
     if (!current) throw new Error("Not Found");
 
@@ -341,7 +348,7 @@ const patchUserById = async (req, res, next) => {
     }
 
     const updated = await prisma.user.update({
-      where: { id },
+      where: { id: current.id },
       data,
       select: {
         id: true,
@@ -603,9 +610,6 @@ const getCurrentUserTransactions = async (req, res, next) => {
 
 const getUserTransactions = async (req, res, next) => {
   try {
-    const id = Number(req.params.userId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
-
     const { page = 1, limit = 20 } = req.query ?? {};
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -614,13 +618,19 @@ const getUserTransactions = async (req, res, next) => {
     if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100)
       throw new Error("Bad Request");
 
-    const userExists = await prisma.user.count({ where: { id } });
-    if (!userExists) throw new Error("Not Found");
+    const where = buildUserWhere(req.params.userId);
+    if (!where) throw new Error("Not Found");
+
+    const target = await prisma.user.findUnique({
+      where,
+      select: { id: true },
+    });
+    if (!target) throw new Error("Not Found");
 
     const [count, rows] = await prisma.$transaction([
-      prisma.transaction.count({ where: { userId: id } }),
+      prisma.transaction.count({ where: { userId: target.id } }),
       prisma.transaction.findMany({
-        where: { userId: id },
+        where: { userId: target.id },
         orderBy: { createdAt: "desc" },
         skip: (pageNum - 1) * limitNum,
         take: limitNum,
@@ -643,13 +653,17 @@ const getUserTransactions = async (req, res, next) => {
 const postTransferTransaction = async (req, res, next) => {
   try {
     const sender = await loadCurrentUser(req);
-    const recipientId = Number(req.params.userId);
 
-    if (!Number.isInteger(recipientId) || recipientId <= 0) {
-      throw new Error("Bad Request");
-    }
+    const where = buildUserWhere(req.params.userId);
+    if (!where) throw new Error("Not Found");
 
-    if (recipientId === sender.id) {
+    const recipient = await prisma.user.findUnique({
+      where,
+      select: { id: true, utorid: true, name: true },
+    });
+    if (!recipient) throw new Error("Not Found");
+
+    if (recipient.id === sender.id) {
       throw new Error("Bad Request");
     }
 
@@ -664,9 +678,6 @@ const postTransferTransaction = async (req, res, next) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const receiver = await tx.user.findUnique({ where: { id: recipientId } });
-      if (!receiver) throw new Error("Not Found");
-
       const freshSender = await tx.user.findUnique({
         where: { id: sender.id },
         select: { points: true },
@@ -684,7 +695,7 @@ const postTransferTransaction = async (req, res, next) => {
       });
 
       await tx.user.update({
-        where: { id: receiver.id },
+        where: { id: recipient.id },
         data: { points: { increment: amountValue } },
       });
 
@@ -699,7 +710,7 @@ const postTransferTransaction = async (req, res, next) => {
 
       const inbound = await tx.transaction.create({
         data: {
-          userId: receiver.id,
+          userId: recipient.id,
           type: "transfer",
           amount: amountValue,
           relatedId: outbound.id,
@@ -712,7 +723,7 @@ const postTransferTransaction = async (req, res, next) => {
         data: { relatedId: inbound.id },
       });
 
-      return { outbound, inbound, receiver };
+      return { outbound, inbound };
     });
 
     return res.status(201).json({
@@ -720,9 +731,9 @@ const postTransferTransaction = async (req, res, next) => {
       receivedId: result.inbound.id,
       amount: amountValue,
       receiver: {
-        id: result.receiver.id,
-        utorid: result.receiver.utorid,
-        name: result.receiver.name,
+        id: recipient.id,
+        utorid: recipient.utorid,
+        name: recipient.name,
       },
     });
   } catch (err) {

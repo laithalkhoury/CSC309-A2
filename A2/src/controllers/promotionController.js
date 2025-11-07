@@ -1,4 +1,5 @@
 const prisma = require("../prismaClient");
+const { parsePositiveInt } = require("../utils/identifiers");
 
 const VALID_TYPES = ["automatic", "onetime"];
 
@@ -159,8 +160,8 @@ const getPromotions = async (req, res, next) => {
 
 const getPromotionById = async (req, res, next) => {
   try {
-    const id = Number(req.params.promotionId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    const id = parsePositiveInt(req.params.promotionId);
+    if (!id) throw new Error("Not Found");
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
@@ -184,8 +185,8 @@ const getPromotionById = async (req, res, next) => {
 
 const patchPromotionById = async (req, res, next) => {
   try {
-    const id = Number(req.params.promotionId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    const id = parsePositiveInt(req.params.promotionId);
+    if (!id) throw new Error("Not Found");
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");
@@ -278,8 +279,8 @@ const patchPromotionById = async (req, res, next) => {
 
 const deletePromotionById = async (req, res, next) => {
   try {
-    const id = Number(req.params.promotionId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+    const id = parsePositiveInt(req.params.promotionId);
+    if (!id) throw new Error("Not Found");
 
     const promotion = await prisma.promotion.findUnique({ where: { id } });
     if (!promotion) throw new Error("Not Found");

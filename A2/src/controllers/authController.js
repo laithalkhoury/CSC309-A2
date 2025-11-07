@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require("uuid");
 const prisma = require("../prismaClient");
 const { generateToken } = require("../services/jwt");
 const { hashPassword, comparePassword } = require("../services/bcrypt");
+const { normalizeUtorid } = require("../utils/identifiers");
 
 const rateLimiter = new Map();
 
@@ -17,7 +18,10 @@ const authUser = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const user = await prisma.user.findUnique({ where: { utorid } });
+    const normalized = normalizeUtorid(utorid);
+    if (!normalized) throw new Error("Bad Request");
+
+    const user = await prisma.user.findUnique({ where: { utorid: normalized } });
     if (!user || !user.password) {
       throw new Error("Unauthorized");
     }
