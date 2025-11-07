@@ -1,12 +1,16 @@
-const { v4: uuidv4 } = require("uuid");
 const prisma = require("../prismaClient");
-const { generateToken } = require("../services/jwt");
-const { hashPassword, comparePassword } = require("../services/bcrypt");
 
 // POST /transactions - Create a new transaction
 const postTransaction = async (req, res, next) => {
   try {
-    const { utorid, type, spent, promotionIDs = [], remark = "" } = req.body;
+    const {
+      utorid,
+      type,
+      spent,
+      promotionIds: camelPromotionIds,
+      promotionIDs: pascalPromotionIds,
+      remark = "",
+    } = req.body;
 
     if (!utorid || !type || spent === undefined) {
       throw new Error("Bad Request");
@@ -17,6 +21,8 @@ const postTransaction = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
+    const normalizedUtorid = utorid.toLowerCase();
+
     if (type !== "purchase") {
       throw new Error("Bad Request");
     }
@@ -25,17 +31,31 @@ const postTransaction = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const customer = await prisma.user.findUnique({ where: { utorid } });
+    const customer = await prisma.user.findUnique({ where: { utorid: normalizedUtorid } });
     if (!customer) {
       throw new Error("Bad Request");
     }
 
     // Validate promotions
+    const promotionIDs = camelPromotionIds ?? pascalPromotionIds ?? [];
+
+    if (!Array.isArray(promotionIDs)) {
+      throw new Error("Bad Request");
+    }
+
     let validPromotions = [];
     if (promotionIDs.length > 0) {
       validPromotions = await prisma.promotion.findMany({
         where: {
-          id: { in: promotionIDs },
+          id: {
+            in: promotionIDs.map((id) => {
+              const numeric = Number(id);
+              if (!Number.isInteger(numeric) || numeric <= 0) {
+                throw new Error("Bad Request");
+              }
+              return numeric;
+            }),
+          },
           startTime: { lte: new Date() },
           endTime: { gte: new Date() },
         },
@@ -60,10 +80,11 @@ const postTransaction = async (req, res, next) => {
       }
     }
 
-    let pointsEarned = Math.floor(spent / 0.25);
+    const basePoints = Math.round(spent / 0.25);
+    let pointsEarned = basePoints;
     for (const promo of validPromotions) {
       if (promo.points) pointsEarned += promo.points;
-      if (promo.rate) pointsEarned += Math.floor(spent * 100 * promo.rate);
+      if (promo.rate) pointsEarned += Math.round(basePoints * promo.rate);
     }
 
     const cashier = req.me;
@@ -106,9 +127,10 @@ const postTransaction = async (req, res, next) => {
       utorid: customer.utorid,
       type: transaction.type,
       spent: transaction.spent,
-      earned: suspicious ? 0 : transaction.amount,
-      remark: transaction.remark,
+      amount: transaction.amount,
       promotionIds: transaction.promotions.map((p) => p.id),
+      suspicious: transaction.suspicious,
+      remark: transaction.remark,
       createdBy: cashier?.utorid || null,
     });
   } catch (err) {
@@ -134,7 +156,9 @@ const adjustmentTransaction = async (req, res, next) => {
     const relId = Number(relatedId);
     if (isNaN(relId) || relId <= 0) throw new Error("Bad Request");
 
-    const customer = await prisma.user.findUnique({ where: { utorid } });
+    const normalizedUtorid = utorid.toLowerCase();
+
+    const customer = await prisma.user.findUnique({ where: { utorid: normalizedUtorid } });
     if (!customer) throw new Error("Bad Request");
 
     const relatedTransaction = await prisma.transaction.findUnique({
@@ -361,8 +385,94 @@ const patchTransactionAsSuspiciousById = async (req, res, next) => {
   }
 };
 
-const patchRedemptionTransactionStatusById = async (req, res) =>
-  res.status(501).json({ error: "Not Implemented" });
+const patchRedemptionTransactionStatusById = async (req, res, next) => {
+  try {
+    const id = Number(req.params.transactionId);
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
+
+    const { processed } = req.body ?? {};
+    if (typeof processed !== "boolean") throw new Error("Bad Request");
+
+    const transaction = await prisma.transaction.findUnique({
+      where: { id },
+      include: { user: true, promotions: { select: { id: true } }, createdBy: { select: { utorid: true } } },
+    });
+
+    if (!transaction) throw new Error("Not Found");
+    if (transaction.type !== "redemption") throw new Error("Bad Request");
+
+    if (processed) {
+      if (transaction.redeemed === transaction.amount) {
+        return res.status(200).json({
+          id: transaction.id,
+          utorid: transaction.user.utorid,
+          type: transaction.type,
+          amount: transaction.amount,
+          redeemed: transaction.redeemed,
+          promotionIds: transaction.promotions.map((p) => p.id),
+          remark: transaction.remark || "",
+          createdBy: transaction.createdBy?.utorid || null,
+        });
+      }
+
+      const updated = await prisma.transaction.update({
+        where: { id },
+        data: { redeemed: transaction.amount },
+        include: { user: true, promotions: { select: { id: true } }, createdBy: { select: { utorid: true } } },
+      });
+
+      return res.status(200).json({
+        id: updated.id,
+        utorid: updated.user.utorid,
+        type: updated.type,
+        amount: updated.amount,
+        redeemed: updated.redeemed,
+        promotionIds: updated.promotions.map((p) => p.id),
+        remark: updated.remark || "",
+        createdBy: updated.createdBy?.utorid || null,
+      });
+    }
+
+    if (!transaction.redeemed || transaction.redeemed === 0) {
+      return res.status(200).json({
+        id: transaction.id,
+        utorid: transaction.user.utorid,
+        type: transaction.type,
+        amount: transaction.amount,
+        redeemed: transaction.redeemed ?? 0,
+        promotionIds: transaction.promotions.map((p) => p.id),
+        remark: transaction.remark || "",
+        createdBy: transaction.createdBy?.utorid || null,
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: transaction.userId },
+        data: { points: { increment: transaction.amount } },
+      });
+
+      return tx.transaction.update({
+        where: { id },
+        data: { redeemed: 0 },
+        include: { user: true, promotions: { select: { id: true } }, createdBy: { select: { utorid: true } } },
+      });
+    });
+
+    return res.status(200).json({
+      id: result.id,
+      utorid: result.user.utorid,
+      type: result.type,
+      amount: result.amount,
+      redeemed: result.redeemed,
+      promotionIds: result.promotions.map((p) => p.id),
+      remark: result.remark || "",
+      createdBy: result.createdBy?.utorid || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 module.exports = {
   postTransaction,

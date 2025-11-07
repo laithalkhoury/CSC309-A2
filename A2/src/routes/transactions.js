@@ -8,6 +8,7 @@ const {
     patchRedemptionTransactionStatusById,
     adjustmentTransaction,
 } = require("../controllers/transactionController.js");
+const { authenticate, requires } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
@@ -16,10 +17,13 @@ const handleTransaction = async (req, res, next) => {
     try {
         const { type } = req.body;
         if (type === "purchase") {
-            return await postTransaction(req, res);
+            return await postTransaction(req, res, next);
         }
         else if (type === "adjustment") {
-            return await adjustmentTransaction(req, res);
+            if (!req.me || (req.me.role !== "manager" && req.me.role !== "superuser")) {
+                throw new Error("Forbidden");
+            }
+            return await adjustmentTransaction(req, res, next);
         }
         else {
             throw new Error("Bad Request");
@@ -29,11 +33,11 @@ const handleTransaction = async (req, res, next) => {
     }
 }
 
-router.post("/", handleTransaction);
-router.get("/", getTransactions);
-router.get("/:transactionId", getTransactionById);
-router.patch("/:transactionId/suspicious", patchTransactionAsSuspiciousById);
-router.patch("/:transactionId/processed", patchRedemptionTransactionStatusById);
+router.post("/", authenticate, requires("cashier"), handleTransaction);
+router.get("/", authenticate, requires("manager"), getTransactions);
+router.get("/:transactionId", authenticate, requires("manager"), getTransactionById);
+router.patch("/:transactionId/suspicious", authenticate, requires("manager"), patchTransactionAsSuspiciousById);
+router.patch("/:transactionId/processed", authenticate, requires("cashier"), patchRedemptionTransactionStatusById);
 
 
 

@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require("uuid");
 const prisma = require("../prismaClient");
 const { generateToken } = require("../services/jwt");
 const { hashPassword, comparePassword } = require("../services/bcrypt");
+const { normalizeUtorid } = require("../utils/identifiers");
 
 const rateLimiter = new Map();
 
@@ -17,7 +18,10 @@ const authUser = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const user = await prisma.user.findUnique({ where: { utorid } });
+    const normalized = normalizeUtorid(utorid);
+    if (!normalized) throw new Error("Bad Request");
+
+    const user = await prisma.user.findUnique({ where: { utorid: normalized } });
     if (!user || !user.password) {
       throw new Error("Unauthorized");
     }
@@ -52,39 +56,40 @@ const requestPasswordReset = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const clientIp = req.ip;
+    const utoridKey = String(utorid).toLowerCase();
+
     const now = Date.now();
-    const lastRequestTime = rateLimiter.get(clientIp);
+    const lastRequestTime = rateLimiter.get(utoridKey);
 
     if (lastRequestTime && now - lastRequestTime < 60 * 1000) {
       return res.status(429).json({ error: "Too many requests" });
     }
 
-    rateLimiter.set(clientIp, now);
-
-    // Clean old entries
-    if (rateLimiter.size > 1000) {
-      const cutoff = now - 60000;
-      for (const [ip, timestamp] of rateLimiter.entries()) {
-        if (timestamp < cutoff) {
-          rateLimiter.delete(ip);
-        }
-      }
+    const user = await prisma.user.findUnique({ where: { utorid: utoridKey } });
+    if (!user) {
+      throw new Error("Not Found");
     }
-
-    const user = await prisma.user.findUnique({ where: { utorid } });
 
     const resetToken = uuidv4();
     const resetExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    if (user) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          resetToken,
-          resetExpiresAt,
-        },
-      });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken,
+        resetExpiresAt,
+      },
+    });
+
+    rateLimiter.set(utoridKey, now);
+
+    if (rateLimiter.size > 1000) {
+      const cutoff = now - 60 * 1000;
+      for (const [key, timestamp] of rateLimiter.entries()) {
+        if (timestamp < cutoff) {
+          rateLimiter.delete(key);
+        }
+      }
     }
 
     return res.status(202).json({
@@ -116,22 +121,28 @@ const resetPassword = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
-    const user = await prisma.user.findFirst({
-      where: { utorid, resetToken },
+    const tokenOwner = await prisma.user.findUnique({
+      where: { resetToken },
     });
 
-    if (!user) {
+    if (!tokenOwner) {
       throw new Error("Not Found");
     }
 
-    if (user.resetExpiresAt && new Date() > user.resetExpiresAt) {
+    if (tokenOwner.resetExpiresAt && new Date() > tokenOwner.resetExpiresAt) {
       throw new Error("Not Found");
+    }
+
+    const normalizedUtorid = String(utorid).toLowerCase();
+
+    if (tokenOwner.utorid !== normalizedUtorid) {
+      throw new Error("Unauthorized");
     }
 
     const hashedPassword = await hashPassword(password);
 
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: tokenOwner.id },
       data: {
         password: hashedPassword,
         resetToken: null,
