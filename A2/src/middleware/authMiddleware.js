@@ -8,6 +8,12 @@ const authenticate = jwt({
   algorithms: ["HS256"],
 });
 
+const authenticateOptional = jwt({
+  secret: process.env.JWT_SECRET || "secretkey",
+  algorithms: ["HS256"],
+  credentialsRequired: false,
+});
+
 function requires(minRole) {
   const ranking = { regular: 1, cashier: 2, manager: 3, superuser: 4 };
 
@@ -41,4 +47,4 @@ async function attachUser(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, requires, attachUser };
+module.exports = { authenticate, authenticateOptional, requires, attachUser };

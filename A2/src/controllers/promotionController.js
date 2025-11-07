@@ -13,8 +13,8 @@ function serializePromotion(promotion) {
     name: promotion.name,
     description: promotion.description,
     type: promotion.type,
-    startTime: promotion.startTime,
-    endTime: promotion.endTime,
+    startTime: promotion.startTime.toISOString(),
+    endTime: promotion.endTime.toISOString(),
     rate: promotion.rate,
     points: promotion.points,
     minSpending: promotion.minSpending,
@@ -171,7 +171,9 @@ const getPromotionById = async (req, res, next) => {
     const role = viewer?.role ?? "regular";
 
     if (role === "regular" || role === "cashier") {
-      if (!(promotion.startTime <= now && promotion.endTime >= now)) {
+      const startTime = new Date(promotion.startTime);
+      const endTime = new Date(promotion.endTime);
+      if (!(startTime <= now && endTime >= now)) {
         throw new Error("Not Found");
       }
     }
