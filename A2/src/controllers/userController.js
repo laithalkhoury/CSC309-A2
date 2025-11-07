@@ -460,15 +460,17 @@ const patchCurrentUserPassword = async (req, res, next) => {
       throw new Error("Bad Request");
     }
 
+    // Check old password BEFORE validating new password format
+    const matches = await comparePassword(old, me.password);
+    if (!matches) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    // Now validate new password format
     const passwordRegex =
       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
     if (!passwordRegex.test(newPassword)) {
       throw new Error("Bad Request");
-    }
-
-    const matches = await comparePassword(old, me.password);
-    if (!matches) {
-      return res.status(403).json({ error: "Forbidden" });
     }
 
     const hashed = await hashPassword(newPassword);

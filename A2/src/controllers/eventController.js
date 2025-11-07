@@ -420,7 +420,7 @@ const deleteEventById = async (req, res, next) => {
 
         await prisma.event.delete({ where: { id } });
 
-        return res.status(200).json({ id });
+        return res.status(204).send();
     } catch (err) {
         next(err);
     }
@@ -467,12 +467,23 @@ const postOrganizerToEvent = async (req, res, next) => {
             throw new Error("Bad Request");
         }
 
-        await prisma.event.update({
+        const updated = await prisma.event.update({
             where: { id: eventId },
             data: { organizers: { connect: { id: target.id } } },
+            include: {
+                organizers: {
+                    select: { id: true, utorid: true, name: true },
+                    orderBy: { id: "asc" },
+                },
+            },
         });
 
-        return res.status(201).json({ id: target.id, utorid: target.utorid, name: target.name });
+        return res.status(201).json({
+            id: updated.id,
+            name: updated.name,
+            location: updated.location,
+            organizers: updated.organizers,
+        });
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -517,7 +528,7 @@ const removeOrganizerFromEvent = async (req, res, next) => {
             data: { organizers: { disconnect: { id: userId } } },
         });
 
-        return res.status(200).json({ id: userId });
+        return res.status(204).send();
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -568,16 +579,22 @@ const postGuestToEvent = async (req, res, next) => {
 
         const alreadyGuest = event.guests.some((g) => g.id === target.id);
 
+        let numGuests = event.guests.length;
         if (!alreadyGuest) {
             await prisma.event.update({
                 where: { id: eventId },
                 data: { guests: { connect: { id: target.id } } },
             });
+            numGuests++;
         }
 
-        return res
-            .status(alreadyGuest ? 200 : 201)
-            .json({ id: target.id, utorid: target.utorid, name: target.name });
+        return res.status(201).json({
+            id: event.id,
+            name: event.name,
+            location: event.location,
+            guestAdded: { id: target.id, utorid: target.utorid, name: target.name },
+            numGuests,
+        });
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -616,7 +633,7 @@ const deleteGuestFromEvent = async (req, res, next) => {
             data: { guests: { disconnect: { id: userId } } },
         });
 
-        return res.status(200).json({ id: userId });
+        return res.status(204).send();
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -660,17 +677,21 @@ const postCurrentUserToEvent = async (req, res, next) => {
 
         const alreadyGuest = event.guests.some((g) => g.id === viewer.id);
 
+        let numGuests = event.guests.length;
         if (!alreadyGuest) {
             await prisma.event.update({
                 where: { id: eventId },
                 data: { guests: { connect: { id: viewer.id } } },
             });
+            numGuests++;
         }
 
         return res.status(alreadyGuest ? 200 : 201).json({
-            id: viewer.id,
-            utorid: viewer.utorid,
-            name: viewer.name,
+            id: event.id,
+            name: event.name,
+            location: event.location,
+            guestAdded: { id: viewer.id, utorid: viewer.utorid, name: viewer.name },
+            numGuests,
         });
     } catch (err) {
         if (err.statusCode === 410) {
@@ -726,9 +747,10 @@ const createRewardTransaction = async (req, res, next) => {
         const eventId = Number(req.params.eventId);
         if (!Number.isInteger(eventId) || eventId <= 0) throw new Error("Bad Request");
 
-        const { utorids = [], amount, remark = "" } = req.body ?? {};
+        const { utorid, type, amount, remark = "" } = req.body ?? {};
 
-        if (!Array.isArray(utorids) || !Number.isInteger(amount) || amount <= 0) {
+        if (type !== "event") throw new Error("Bad Request");
+        if (!Number.isInteger(amount) || amount <= 0) {
             throw new Error("Bad Request");
         }
 
@@ -753,21 +775,20 @@ const createRewardTransaction = async (req, res, next) => {
             throw new Error("Forbidden");
         }
 
-        const lowerUtorids = utorids.map((u) => String(u).toLowerCase());
-
-        const guestsByUtorid = new Map(
-            event.guests.map((guest) => [guest.utorid.toLowerCase(), guest])
-        );
-
-        const guestsToReward = lowerUtorids.map((utorid) => {
-            const guest = guestsByUtorid.get(utorid);
+        // Determine guests to reward
+        let guestsToReward;
+        if (utorid) {
+            // Award to specific guest
+            const normalizedUtorid = String(utorid).toLowerCase();
+            const guest = event.guests.find((g) => g.utorid.toLowerCase() === normalizedUtorid);
             if (!guest) {
-                const error = new Error("Bad Request");
-                error.details = "missing guest";
-                throw error;
+                throw new Error("Bad Request");
             }
-            return guest;
-        });
+            guestsToReward = [guest];
+        } else {
+            // Award to all guests
+            guestsToReward = event.guests;
+        }
 
         if (event.pointsRemain < amount * guestsToReward.length) {
             throw new Error("Bad Request");
@@ -783,6 +804,7 @@ const createRewardTransaction = async (req, res, next) => {
                         amount,
                         remark: typeof remark === "string" ? remark : "",
                         eventId,
+                        createdById: requester.id,
                     },
                 });
 
@@ -791,7 +813,7 @@ const createRewardTransaction = async (req, res, next) => {
                     data: { points: { increment: amount } },
                 });
 
-                created.push(transaction);
+                created.push({ transaction, guest });
             }
 
             await tx.event.update({
@@ -805,17 +827,32 @@ const createRewardTransaction = async (req, res, next) => {
             return created;
         });
 
-        // ✅ return 200 instead of 201
-        return res.status(200).json({
-            count: transactions.length,
-            results: transactions.map((t) => ({
-                id: t.id,
-                userId: t.userId,
-                amount: t.amount,
-                type: t.type,
-                eventId: t.eventId,
-            })),
-        });
+        // If utorid was specified, return single object
+        if (utorid) {
+            const { transaction, guest } = transactions[0];
+            return res.status(200).json({
+                id: transaction.id,
+                recipient: guest.utorid,
+                awarded: transaction.amount,
+                type: transaction.type,
+                relatedId: transaction.eventId,
+                remark: transaction.remark || "",
+                createdBy: requester.utorid,
+            });
+        }
+
+        // If utorid was not specified, return array
+        return res.status(200).json(
+            transactions.map(({ transaction, guest }) => ({
+                id: transaction.id,
+                recipient: guest.utorid,
+                awarded: transaction.amount,
+                type: transaction.type,
+                relatedId: transaction.eventId,
+                remark: transaction.remark || "",
+                createdBy: requester.utorid,
+            }))
+        );
     } catch (err) {
         if (err.details === "missing guest") {
             return res.status(400).json({ error: "Bad Request" });
