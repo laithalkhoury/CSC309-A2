@@ -1,17 +1,29 @@
 const prisma = require("../prismaClient");
 
-const VALID_TYPES = new Set(["automatic", "one-time", "one_time"]);
-
 function normalizeType(value) {
   if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!VALID_TYPES.has(trimmed)) return null;
-  if (trimmed === "one-time" || trimmed === "one_time") return "one_time";
-  return trimmed;
+
+  const lowered = value.trim().toLowerCase();
+  if (!lowered) return null;
+
+  if (lowered === "automatic") return "automatic";
+
+  const normalized = lowered.replace(/[-\s]+/g, "_");
+  if (normalized === "one_time") return "one_time";
+
+  return null;
 }
 
 function toResponseType(dbValue) {
   return dbValue === "one_time" ? "one_time" : dbValue;
+}
+
+function coerceNumber(value) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    return Number(value);
+  }
+  return NaN;
 }
 
 async function loadViewer(req) {
@@ -76,30 +88,42 @@ const postPromotion = async (req, res, next) => {
     };
 
     if (minSpending !== undefined) {
-      const spending = Number(minSpending);
-      if (!Number.isFinite(spending) || spending < 0) throw new Error("Bad Request");
-      data.minSpending = spending;
+      if (minSpending === null) {
+        data.minSpending = null;
+      } else {
+        const spending = coerceNumber(minSpending);
+        if (!Number.isFinite(spending) || spending < 0) throw new Error("Bad Request");
+        data.minSpending = spending;
+      }
     }
 
     if (normalizedType === "automatic") {
-      const rateVal = Number(rate);
+      const rateVal = coerceNumber(rate);
       if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
       data.rate = rateVal;
       if (points !== undefined) {
-        const pts = Number(points);
-        if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
-        data.points = pts;
+        if (points === null) {
+          data.points = null;
+        } else {
+          const pts = coerceNumber(points);
+          if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
+          data.points = pts;
+        }
       }
     } else if (normalizedType === "one_time") {
-      const ptsVal = Number(points);
+      const ptsVal = coerceNumber(points);
       if (!Number.isInteger(ptsVal) || ptsVal <= 0) {
         throw new Error("Bad Request");
       }
       data.points = ptsVal;
       if (rate !== undefined) {
-        const rateVal = Number(rate);
-        if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
-        data.rate = rateVal;
+        if (rate === null) {
+          data.rate = null;
+        } else {
+          const rateVal = coerceNumber(rate);
+          if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
+          data.rate = rateVal;
+        }
       }
     }
 
@@ -269,22 +293,30 @@ const patchPromotionById = async (req, res, next) => {
     }
 
     if (rate !== undefined) {
-      const rateVal = Number(rate);
-      if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
-      data.rate = rateVal;
+      if (rate === null) {
+        data.rate = null;
+      } else {
+        const rateVal = coerceNumber(rate);
+        if (!Number.isFinite(rateVal) || rateVal <= 0) throw new Error("Bad Request");
+        data.rate = rateVal;
+      }
     }
 
     if (points !== undefined) {
-      const pts = Number(points);
-      if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
-      data.points = pts;
+      if (points === null) {
+        data.points = null;
+      } else {
+        const pts = coerceNumber(points);
+        if (!Number.isInteger(pts) || pts < 0) throw new Error("Bad Request");
+        data.points = pts;
+      }
     }
 
     if (minSpending !== undefined) {
       if (minSpending === null) {
         data.minSpending = null;
       } else {
-        const spend = Number(minSpending);
+        const spend = coerceNumber(minSpending);
         if (!Number.isFinite(spend) || spend < 0) throw new Error("Bad Request");
         data.minSpending = spend;
       }
