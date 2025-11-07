@@ -96,7 +96,7 @@ const postUser = async (req, res, next) => {
 // GET /users - Retrieve a list of users (manager or higher)
 const getUsers = async (req, res, next) => {
   try {
-    const { name, role, verified, activated, page = 1, limit = 20 } = req.query;
+    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -441,8 +441,6 @@ const patchCurrentUser = async (req, res, next) => {
         lastLogin: true,
         verified: true,
         avatarUrl: true,
-        suspicious: true,
-        password: true,
       },
     });
 
@@ -456,19 +454,19 @@ const patchCurrentUserPassword = async (req, res, next) => {
   try {
     const me = await loadCurrentUser(req);
 
-    const { oldPassword, newPassword } = req.body ?? {};
+    const { old, new: newPassword } = req.body ?? {};
 
-    if (!oldPassword || !newPassword) {
+    if (!old || !newPassword) {
       throw new Error("Bad Request");
     }
 
     const passwordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,64}$/;
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
     if (!passwordRegex.test(newPassword)) {
       throw new Error("Bad Request");
     }
 
-    const matches = await comparePassword(oldPassword, me.password);
+    const matches = await comparePassword(old, me.password);
     if (!matches) {
       return res.status(403).json({ error: "Forbidden" });
     }
@@ -570,7 +568,7 @@ const getCurrentUserTransactions = async (req, res, next) => {
   try {
     const me = await loadCurrentUser(req);
 
-    const { page = 1, limit = 20 } = req.query ?? {};
+    const { page = 1, limit = 10 } = req.query ?? {};
     const pageNum = Number(page);
     const limitNum = Number(limit);
 
@@ -606,7 +604,7 @@ const getUserTransactions = async (req, res, next) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id) || id <= 0) throw new Error("Bad Request");
 
-    const { page = 1, limit = 20 } = req.query ?? {};
+    const { page = 1, limit = 10 } = req.query ?? {};
     const pageNum = Number(page);
     const limitNum = Number(limit);
 

@@ -13,30 +13,57 @@ const BASE_EVENT_INCLUDE = {
     _count: { select: { guests: true, organizers: true } },
 };
 
-function serializeEvent(event) {
+// Full event serialization for detailed views (managers/organizers)
+function serializeEventFull(event) {
+    const obj = {
+        id: event.id,
+        name: event.name,
+        description: event.description,
+        location: event.location,
+        startTime: event.startTime.toISOString ? event.startTime.toISOString() : event.startTime,
+        endTime: event.endTime.toISOString ? event.endTime.toISOString() : event.endTime,
+        capacity: event.capacity,
+        pointsRemain: event.pointsRemain,
+        pointsAwarded: event.pointsAwarded,
+        published: event.published,
+        organizers: event.organizers ?? [],
+        guests: event.guests ?? [],
+    };
+    return obj;
+}
+
+// Regular user view of a specific event
+function serializeEventRegular(event) {
     return {
         id: event.id,
         name: event.name,
         description: event.description,
         location: event.location,
-        startTime: event.startTime,
-        endTime: event.endTime,
+        startTime: event.startTime.toISOString ? event.startTime.toISOString() : event.startTime,
+        endTime: event.endTime.toISOString ? event.endTime.toISOString() : event.endTime,
         capacity: event.capacity,
-        points: event.points,
-        pointsRemain: event.pointsRemain,
-        pointsAwarded: event.pointsAwarded,
-        published: event.published,
-        createdBy: event.createdBy
-            ? {
-                id: event.createdBy.id,
-                utorid: event.createdBy.utorid,
-                name: event.createdBy.name,
-            }
-            : null,
         organizers: event.organizers ?? [],
-        guestCount: event._count?.guests ?? event.guests?.length ?? 0,
-        guests: event.guests ?? undefined,
+        numGuests: event._count?.guests ?? event.guests?.length ?? 0,
     };
+}
+
+// List view serialization (for GET /events)
+function serializeEventListItem(event, isPrivileged) {
+    const obj = {
+        id: event.id,
+        name: event.name,
+        location: event.location,
+        startTime: event.startTime.toISOString ? event.startTime.toISOString() : event.startTime,
+        endTime: event.endTime.toISOString ? event.endTime.toISOString() : event.endTime,
+        capacity: event.capacity,
+        numGuests: event._count?.guests ?? event.guests?.length ?? 0,
+    };
+    if (isPrivileged) {
+        obj.pointsRemain = event.pointsRemain;
+        obj.pointsAwarded = event.pointsAwarded;
+        obj.published = event.published;
+    }
+    return obj;
 }
 
 async function loadViewer(req) {
@@ -53,9 +80,6 @@ function ensureCapacity(event) {
 
 const postEvent = async (req, res, next) => {
     try {
-        if (!req.me) {
-            return res.status(401).json({ error: "Unauthorized" });
-        }
         const { name, description, location, startTime, endTime, capacity, points } =
             req.body ?? {};
 
@@ -119,7 +143,7 @@ const postEvent = async (req, res, next) => {
             include: BASE_EVENT_INCLUDE,
         });
 
-        return res.status(201).json(serializeEvent(event));
+        return res.status(201).json(serializeEventFull(event));
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
@@ -133,9 +157,9 @@ const getEvents = async (req, res, next) => {
         const viewer = await loadViewer(req);
         const role = viewer?.role ?? "regular";
 
-        const { page = 1, limit = 20, published } = req.query ?? {};
+        const { page = 1, limit = 10, published } = req.query ?? {};
         const pageNum = parseInt(page) || 1;
-        const limitNum = parseInt(limit) || 20;
+        const limitNum = parseInt(limit) || 10;
 
         if (!Number.isInteger(pageNum) || pageNum < 1) throw new Error("Bad Request");
         if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100)
@@ -206,7 +230,8 @@ const getEvents = async (req, res, next) => {
             }),
         ]);
 
-        const results = events.map((event) => serializeEvent(event));
+        const isPrivileged = role === "manager" || role === "superuser";
+        const results = events.map((event) => serializeEventListItem(event, isPrivileged));
         return res.status(200).json({ count, results });
     } catch (err) {
         next(err);
@@ -234,10 +259,15 @@ const getEventById = async (req, res, next) => {
         const isGuest = viewer && event.guests.some((g) => g.id === viewer.id);
 
         if (!event.published && !isOrganizer && !["manager", "superuser"].includes(role)) {
-            return res.status(403).json({ error: "Forbidden" });
+            return res.status(404).json({ error: "Not Found" });
         }
 
-        return res.status(200).json(serializeEvent(event));
+        const isPrivileged = isOrganizer || isGuest || ["manager", "superuser"].includes(role);
+        if (isPrivileged) {
+            return res.status(200).json(serializeEventFull(event));
+        } else {
+            return res.status(200).json(serializeEventRegular(event));
+        }
     } catch (err) {
         next(err);
     }
@@ -363,7 +393,7 @@ const patchEventById = async (req, res, next) => {
             include: BASE_EVENT_INCLUDE,
         });
 
-        return res.status(200).json(serializeEvent(updated));
+        return res.status(200).json(serializeEventFull(updated));
     } catch (err) {
         if (err.statusCode === 410) {
             return res.status(410).json({ error: "Gone" });
