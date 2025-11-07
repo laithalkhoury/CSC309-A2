@@ -30,6 +30,8 @@ app.use(express.json());
 const authRouter = require("./src/routes/auth.js");
 const userRouter = require("./src/routes/users.js");
 const transactionRouter = require("./src/routes/transactions.js");
+const eventRouter = require("./src/routes/events.js");
+const promotionRouter = require("./src/routes/promotions.js");
 
 
 
@@ -37,6 +39,8 @@ const transactionRouter = require("./src/routes/transactions.js");
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
 app.use("/transactions", transactionRouter);
+app.use("/events", eventRouter);
+app.use("/promotions", promotionRouter);
 
 
 
